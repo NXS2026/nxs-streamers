@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "NXS Streamers",
+  "version": "1.0",
+  "description": "Multi-channel Kick monitoring with Auto Open/Close, Auto Interaction, Multi-Cooldown System, Advanced Dashboard, Dark/Light Theme, Language Support (EN/FR/AR), Announcement History, Channel Reordering, and Data Import/Export.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "storage",
+    "alarms",
+    "tabs",
+    "notifications",
+    "scripting",
+    "downloads" 
+  ],
+  "host_permissions": [
+    "https://kick.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://kick.com/*"],
+      "js": ["config.js", "utils.js", "stream_uptime.js", "kick_automation.js"],
+      "run_at": "document_end"
+    }
+  ]
+}

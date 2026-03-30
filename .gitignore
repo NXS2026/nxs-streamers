@@ -1,0 +1,22 @@
+# Root
+.DS_Store
+Thumbs.db
+*.log
+
+# Node
+node_modules/
+**/node_modules/
+npm-debug.log*
+
+# Secrets / env
+.env
+**/.env
+
+# Local backend state
+NXS_Backend/data/*.json
+
+# Local editor / temp
+.vscode/
+.idea/
+*.tmp
+*.bak

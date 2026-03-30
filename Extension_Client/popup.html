@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NXS Streamers</title>
+  <link rel="stylesheet" href="modern-theme.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  
+  <!-- LOGIN SCREEN -->
+  <div id="login-screen" class="login-screen-container">
+    <div class="login-screen-content">
+      <div style="display:flex;justify-content:center;margin-bottom:14px;">
+        <img src="icons/icon-128.png" alt="NXS Streamers logo" style="width:68px;height:68px;border-radius:18px;box-shadow:0 12px 34px rgba(83,252,24,0.18);border:1px solid rgba(83,252,24,0.22);background:rgba(255,255,255,0.04);padding:6px;">
+      </div>
+      <h1 style="font-size: 20px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 10px; background: linear-gradient(to right, #53fc18, #fff); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent;">NXS STREAMERS</h1>
+      <p style="color: var(--text-dim); font-size: 12px; margin-bottom: 30px; text-align: center;">COMMUNITY MODERATION</p>
+      
+      <div class="card" style="margin-bottom: 0;">
+        <div id="login-form">
+          <div style="text-align: center; margin-bottom: 15px;">
+            <p style="font-size: 11px; color: var(--primary); font-weight: 700; margin-bottom: 5px;">🔐 SECURE ACCESS</p>
+            <p style="font-size: 9px; color: var(--text-dim);">Enter Discord ID to receive OTP</p>
+          </div>
+          
+          <!-- Step 1: Discord ID -->
+          <div id="login-step-1">
+            <div class="form-group">
+              <label class="form-label">DISCORD ID</label>
+              <div style="display: flex; gap: 10px;">
+                <input type="text" id="login-discord-id" placeholder="Enter Discord ID" style="flex: 1;">
+                <button class="btn btn-primary" id="send-otp-btn" style="padding: 0 15px; font-size: 10px;">SEND CODE</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: OTP Code -->
+          <div id="login-step-2" style="display: none;">
+            <div class="form-group">
+              <label class="form-label">VERIFICATION CODE</label>
+              <div style="display: flex; gap: 10px;">
+                <input type="text" id="login-otp-code" placeholder="6-digit code" style="flex: 1; letter-spacing: 5px; text-align: center; font-weight: 800;">
+                <button class="btn btn-primary" id="verify-otp-btn" style="padding: 0 15px; font-size: 10px;">VERIFY</button>
+              </div>
+            </div>
+          </div>
+
+          <p id="login-status" style="font-size: 10px; margin-top: 10px; color: var(--text-dim); text-align: center;">Enter Discord ID to receive OTP</p>
+          
+          <button class="btn btn-outline" id="login-back-btn" style="width: 100%; margin-top: 10px; font-size: 11px; display: none;">BACK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ERROR EMBED (Whitelist Restriction) -->
+  <div id="whitelist-error-embed" class="error-embed" style="display: none; background: rgba(0,0,0,0.9);">
+    <div class="error-content" style="border-color: var(--primary); max-width: 300px;">
+      <div class="error-icon" style="color: var(--primary); font-size: 40px;">🔒</div>
+      <h2 style="color: var(--primary); letter-spacing: 2px;">ACCESS RESTRICTED</h2>
+      <p style="color: var(--text-dim); font-size: 13px; margin: 15px 0;">This URL is not whitelisted. You need to whitelist it first to use it.</p>
+      <div class="card" style="background: rgba(83,252,24,0.05); border-color: rgba(83,252,24,0.1); margin-bottom: 20px;">
+        <p style="font-size: 11px; color: var(--text-main); font-weight: 600;">Check your Discord for details.</p>
+      </div>
+      <button class="btn btn-primary" id="close-error-btn" style="width: 100%;">UNDERSTOOD</button>
+    </div>
+  </div>
+
+  <!-- BAN EMBED (Security) -->
+  <!-- BAN SCREEN -->
+  <div id="ban-embed" class="error-embed" style="display: none; background: rgba(0,0,0,0.95);">
+    <div class="error-content" style="border-color: var(--danger); max-width: 280px;">
+      <div id="ban-embed-icon" style="font-size: 40px; text-align: center;">🚫</div>
+      <h2 id="ban-embed-title" style="color: var(--danger); letter-spacing: 2px; text-align: center;">YOU'RE BANNED</h2>
+      <div class="card" style="background: rgba(255,0,0,0.05); border-color: rgba(255,0,0,0.1); margin: 15px 0; text-align: left;">
+        <p style="font-size: 10px; color: var(--text-dim); margin-bottom: 5px;">REASON:</p>
+        <p id="ban-reason" style="font-size: 12px; font-weight: 700; color: var(--text-main); margin-bottom: 10px;">Violation of community rules</p>
+        <p id="ban-by-label" style="font-size: 10px; color: var(--text-dim); margin-bottom: 5px;">BANNED BY:</p>
+        <p id="banned-by-mod" style="font-size: 12px; font-weight: 700; color: var(--primary);">Admin</p>
+      </div>
+      <button class="btn btn-primary" id="need-help-btn" style="width: 100%; background: #5865F2; border: none;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="margin-right: 8px;"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037 19.736 19.736 0 0 0-4.885 1.515.069.069 0 0 0-.032.027C.533 9.048-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.030zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+        NEED HELP
+      </button>
+    </div>
+  </div>
+
+
+  <!-- OFFLINE OVERLAY -->
+  <div id="offline-overlay" class="error-embed" style="display: none; background: rgba(0,0,0,0.95); z-index: 9999;">
+    <div class="error-content" style="border-color: #ff9800; max-width: 280px;">
+      <div class="error-icon" style="color: #ff9800; font-size: 40px;">📡</div>
+      <h2 style="color: #ff9800; letter-spacing: 2px;">SERVER OFFLINE</h2>
+      <p style="color: var(--text-dim); font-size: 13px; margin: 15px 0;">The server is currently offline. The extension will resume automatically once the server is back online.</p>
+      <!-- Hold 5s to unlock dev URL panel -->
+      <div id="offline-check-btn" class="card" style="background: rgba(255,152,0,0.05); border-color: rgba(255,152,0,0.1); margin-bottom: 12px; cursor: pointer; user-select: none; transition: box-shadow 0.1s;">
+        <p style="font-size: 11px; color: var(--text-main); font-weight: 600; margin:0;">Checking connection...</p>
+      </div>
+      <!-- OTP Panel — 2 steps -->
+      <div id="offline-otp-panel" style="display:none; margin-bottom:8px;">
+
+        <!-- Step 1: Discord ID + Send Code (b7al tswira 3) -->
+        <div id="offline-step-id" style="display:block;">
+          <div style="font-size:9px; color:#ff9800; font-weight:800; letter-spacing:1px; margin-bottom:8px;">🪪 ENTER YOUR DISCORD ID</div>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="offline-uid-input" placeholder="Your Discord ID" maxlength="20"
+              style="flex:1; font-size:12px; padding:7px 10px; background:rgba(255,255,255,0.05);
+              border:1px solid rgba(255,152,0,0.3); border-radius:6px; color:var(--text-main); outline:none;">
+            <button id="offline-uid-send"
+              style="padding:6px 14px; background:rgba(255,152,0,0.15); border:1px solid rgba(255,152,0,0.5);
+              border-radius:6px; color:#ff9800; font-size:10px; cursor:pointer; font-weight:800; white-space:nowrap;">
+              SEND CODE
+            </button>
+          </div>
+          <div id="offline-uid-status" style="font-size:9px; color:var(--text-dim); margin-top:5px; font-family:monospace;"></div>
+        </div>
+
+        <!-- Step 2: Code + Verify (b7al tswira 2) -->
+        <div id="offline-step-code" style="display:none;">
+          <div style="font-size:9px; color:#ff9800; font-weight:800; letter-spacing:1px; margin-bottom:8px;">🔑 ENTER CODE FROM DISCORD DM</div>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="offline-otp-input" placeholder="6-digit code" maxlength="6"
+              style="flex:1; font-size:15px; padding:7px 10px; background:rgba(255,255,255,0.05);
+              border:1px solid rgba(255,152,0,0.3); border-radius:6px; color:var(--text-main);
+              outline:none; letter-spacing:5px; text-align:center;">
+            <button id="offline-otp-verify"
+              style="padding:6px 14px; background:rgba(255,152,0,0.15); border:1px solid rgba(255,152,0,0.5);
+              border-radius:6px; color:#ff9800; font-size:10px; cursor:pointer; font-weight:800;">
+              VERIFY
+            </button>
+          </div>
+          <div id="offline-otp-status" style="font-size:9px; color:var(--text-dim); margin-top:5px; font-family:monospace; text-align:center;">Waiting for code.</div>
+        </div>
+      </div>
+      <!-- Hidden dev URL panel — unlocked after OTP verified -->
+      <div id="offline-dev-panel" style="display:none; margin-bottom:8px;">
+        <div style="font-size:9px; color:#ff9800; font-weight:800; letter-spacing:1px; margin-bottom:6px;">⚙️ UPDATE BACKEND URL</div>
+        <div style="display:flex; gap:6px;">
+          <input type="text" id="offline-url-input" placeholder="https://new-backend.com" style="flex:1; font-size:11px; padding:6px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,152,0,0.3); border-radius:6px; color:var(--text-main); outline:none;">
+          <button id="offline-url-save" style="padding:5px 10px; background:rgba(255,152,0,0.15); border:1px solid rgba(255,152,0,0.4); border-radius:6px; color:#ff9800; font-size:10px; cursor:pointer; font-weight:800; white-space:nowrap;">SAVE</button>
+        </div>
+        <div id="offline-url-status" style="font-size:9px; color:var(--text-dim); margin-top:5px; font-family:monospace;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ANNOUNCEMENT OVERLAY (shown to users when admin sends announcement) -->
+  <div id="announcement-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:99999;align-items:center;justify-content:center;">
+    <div style="background:#0d1117;border:2px solid #53fc18;border-radius:16px;padding:24px;width:290px;box-shadow:0 0 30px rgba(83,252,24,0.15);">
+      <div style="text-align:center;margin-bottom:14px;">
+        <div style="font-size:32px;margin-bottom:8px;">📢</div>
+        <h2 style="color:#53fc18;letter-spacing:2px;font-size:13px;margin:0 0 8px 0;">ANNOUNCEMENT</h2>
+        <!-- Sender username -->
+        <div id="announcement-sender" style="display:inline-flex;align-items:center;gap:6px;background:rgba(83,252,24,0.08);border:1px solid rgba(83,252,24,0.2);border-radius:20px;padding:3px 10px;">
+          <div style="width:16px;height:16px;border-radius:5px;background:rgba(83,252,24,0.2);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#53fc18;" id="announcement-sender-avatar">A</div>
+          <span id="announcement-sender-name" style="font-size:10px;font-weight:700;color:#53fc18;">Admin</span>
+        </div>
+      </div>
+      <!-- Message with overflow fix -->
+      <div id="announcement-message" style="color:var(--text-main);font-size:12px;line-height:1.6;background:rgba(83,252,24,0.05);border:1px solid rgba(83,252,24,0.15);border-radius:10px;padding:14px;margin-bottom:16px;min-height:50px;max-height:150px;overflow-y:auto;word-break:break-word;white-space:pre-wrap;scrollbar-width:thin;scrollbar-color:#53fc18 transparent;"></div>
+      <div style="margin-bottom:10px;">
+        <input type="text" id="announcement-confirm-input" placeholder='Type "ok" to confirm...' style="width:100%;box-sizing:border-box;background:var(--input-bg,rgba(255,255,255,0.05));border:1px solid var(--glass-border);border-radius:8px;color:var(--text-main);padding:10px 12px;font-size:12px;outline:none;font-family:inherit;" autocomplete="off"/>
+      </div>
+      <button id="announcement-send-btn" style="width:100%;background:rgba(255,255,255,0.04);color:#2d3748;border:none;border-radius:8px;padding:10px;font-size:12px;font-weight:800;letter-spacing:1px;cursor:not-allowed;font-family:inherit;" disabled>CONFIRM OK</button>
+    </div>
+  </div>
+
+  <!-- ANNOUNCEMENT SEND MODAL (admin only) -->
+  <div id="announcement-send-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);backdrop-filter:blur(10px);z-index:99998;align-items:center;justify-content:center;">
+    <div style="background:linear-gradient(155deg,#0f1117,#141c26);border:1px solid rgba(83,252,24,0.25);border-radius:20px;padding:0;width:300px;box-shadow:0 24px 60px rgba(0,0,0,0.95),0 0 40px rgba(83,252,24,0.08);overflow:hidden;">
+      <!-- Header -->
+      <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;gap:11px;">
+        <div style="width:36px;height:36px;border-radius:10px;background:rgba(83,252,24,0.1);border:1px solid rgba(83,252,24,0.2);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;">📢</div>
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:900;color:#53fc18;letter-spacing:1.5px;">ANNOUNCEMENT</div>
+          <div style="font-size:9px;color:#4a5568;margin-top:2px;letter-spacing:0.5px;">Send to all connected users</div>
+        </div>
+        <button id="close-announcement-send" style="width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#666;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;font-family:inherit;">&times;</button>
+      </div>
+      <!-- Body -->
+      <div style="padding:18px 20px;">
+        <div style="font-size:9px;font-weight:700;color:#a0aec0;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Message</div>
+        <textarea id="announcement-admin-input" placeholder="Write your announcement..." style="width:100%;box-sizing:border-box;background:var(--input-bg,rgba(255,255,255,0.05));border:1px solid var(--glass-border);border-radius:10px;color:var(--text-main);padding:11px 14px;font-size:12px;outline:none;font-family:inherit;resize:none;height:88px;line-height:1.6;transition:border-color .2s;" onfocus="this.style.borderColor='rgba(83,252,24,0.4)'" onblur="this.style.borderColor='rgba(255,255,255,0.08)'"></textarea>
+        <div id="ann-char-count" style="font-size:9px;color:#2d3748;text-align:right;margin-top:4px;">0 / 300</div>
+      </div>
+      <!-- Footer -->
+      <div style="padding:0 20px 20px;display:flex;flex-direction:column;gap:8px;">
+        <!-- Target selector -->
+        <div style="display:flex;gap:6px;margin-bottom:2px;">
+          <button class="ann-target-btn active-target" data-target="users" style="flex:1;padding:7px 4px;border-radius:9px;font-size:9px;font-weight:800;letter-spacing:.5px;border:1px solid rgba(83,252,24,0.35);background:rgba(83,252,24,0.12);color:#53fc18;cursor:pointer;font-family:inherit;transition:all .2s;">👥 USERS</button>
+          <button class="ann-target-btn" data-target="admins" style="flex:1;padding:7px 4px;border-radius:9px;font-size:9px;font-weight:800;letter-spacing:.5px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:#4a5568;cursor:pointer;font-family:inherit;transition:all .2s;">👑 ADMINS</button>
+          <button class="ann-target-btn" data-target="everyone" style="flex:1;padding:7px 4px;border-radius:9px;font-size:9px;font-weight:800;letter-spacing:.5px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:#4a5568;cursor:pointer;font-family:inherit;transition:all .2s;">🌐 ALL</button>
+        </div>
+        <button id="confirm-announcement-btn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:12px;font-size:12px;font-weight:800;letter-spacing:0.8px;border:none;font-family:inherit;cursor:pointer;background:#53fc18;color:#000;box-shadow:0 6px 20px rgba(83,252,24,0.3);transition:all .2s;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          <span id="confirm-ann-btn-label">SEND TO USERS</span>
+        </button>
+        <button id="cancel-announcement-btn" style="width:100%;padding:11px;border-radius:12px;font-size:11px;font-weight:700;border:1px solid rgba(255,255,255,0.08);background:transparent;color:#666;font-family:inherit;cursor:pointer;transition:all .2s;">CANCEL</button>
+      </div>
+      <div id="announcement-admin-status" style="display:none;padding:0 20px 16px;text-align:center;font-size:11px;font-weight:600;"></div>
+    </div>
+  </div>
+
+  <!-- SCHEDULE LOCK OVERLAY -->
+  <div id="schedule-lock-overlay" class="error-embed" style="display: none; background: rgba(0,0,0,0.95); z-index: 9998;">
+    <div class="error-content" style="border-color: #53fc18; max-width: 280px;">
+      <div class="error-icon" style="color: #53fc18; font-size: 40px;">⏰</div>
+      <h2 style="color: #53fc18; letter-spacing: 2px;">SYSTEM RESTRICTED</h2>
+      <p style="color: var(--text-dim); font-size: 13px; margin: 15px 0;">Daba وقت الراحة. السيستيم طافي بسباب الـ Schedule اللي دارو الـ Owner. غادي يرجع يخدم فـ الوقيتة ديالو.</p>
+      <div class="card" style="background: rgba(83,252,24,0.05); border-color: rgba(83,252,24,0.1); margin-bottom: 20px;">
+        <p style="font-size: 11px; color: var(--text-main); font-weight: 600;">System is on standby mode.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN PANEL (hidden until login) -->
+  <div id="main-panel" class="main-panel-container" style="display: none;">
+    
+    <header class="header">
+      <div class="header-left">
+        <img src="icons/icon-48.png" alt="NXS" style="width:28px;height:28px;border-radius:8px;margin-right:10px;box-shadow:0 8px 22px rgba(83,252,24,0.18);border:1px solid rgba(83,252,24,0.18);background:rgba(255,255,255,0.04);padding:3px;">
+        <h1 id="app-title">NXS <span class="header-title-dim">STREAMERS</span></h1>
+      </div>
+      <div class="header-actions">
+        <button id="theme-toggle-btn" title="Toggle Theme">🌙</button>
+        <div class="header-divider"></div>
+        <button class="btn-icon header-action-btn" id="export-data-btn" title="Export Data">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        </button>
+        <button class="btn-icon header-action-btn" id="import-data-btn" title="Import Data">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+        </button>
+        <input type="file" id="import-file-input" style="display: none;" accept=".json">
+        <div class="header-divider"></div>
+        <div class="header-user-badge">
+          <span id="user-status-dot" class="user-status-dot"></span>
+          <span id="user-status">USER</span>
+        </div>
+        <button class="btn-icon header-action-btn header-logout-btn" id="logout-btn" title="Logout">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        </button>
+      </div>
+    </header>
+
+    
+    <nav class="tabs-nav">
+      <button class="tab-btn active" data-tab="channels">CHANNELS</button>
+      <button class="tab-btn" data-tab="admin" id="admin-tab-btn" style="display: none;">ADMIN</button>
+      <button class="tab-btn" data-tab="settings">SETTINGS</button>
+      <button class="tab-btn" data-tab="dashboard">DASHBOARD</button>
+      <!-- DEV TAB — hidden, unlocked by holding theme btn 5s -->
+      <button class="tab-btn" data-tab="developer" id="dev-tab-btn" style="display:none;">⚙️ DEV</button>
+    </nav>
+
+    
+    <main class="content-area">
+      
+      
+      <section class="tab-content active" id="channels-tab">
+        
+        <div class="stats-grid" style="margin-bottom: 15px; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div class="stat-card" style="padding: 10px;">
+            <div class="form-label" style="text-align: center; font-size: 9px; margin-bottom: 2px;">TOTAL</div>
+            <div class="stat-value" id="count-total" style="font-size: 16px;">0</div>
+          </div>
+          <div class="stat-card" style="padding: 10px; border-color: var(--primary-glow);">
+            <div class="form-label" style="text-align: center; font-size: 9px; margin-bottom: 2px; color: var(--primary);">LIVE</div>
+            <div class="stat-value" id="count-live" style="font-size: 16px;">0</div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" id="add-channel-trigger" style="width: 100%; margin-bottom: 15px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <span data-i18n="add_channel">ADD CHANNEL</span>
+        </button>
+
+        <div class="section-title" data-i18n="active_mon">ACTIVE MONITORING</div>
+        <div id="channels-list">
+          
+        </div>
+      </section>
+
+      
+      <section class="tab-content" id="admin-tab">
+
+        <!-- ── ANNOUNCEMENT BTN ── -->
+        <button id="open-announcement-btn" style="width:100%;margin-bottom:8px;background:linear-gradient(135deg,rgba(83,252,24,0.08),rgba(83,252,24,0.03));border:1px solid rgba(83,252,24,0.22);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:13px;cursor:pointer;font-family:inherit;transition:all .25s;position:relative;overflow:hidden;">
+          <div style="width:40px;height:40px;border-radius:12px;background:rgba(83,252,24,0.12);border:1px solid rgba(83,252,24,0.2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0;">📢</div>
+          <div style="flex:1;text-align:left;">
+            <div style="font-size:12px;font-weight:800;color:#53fc18;letter-spacing:.8px;">ANNOUNCEMENT</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:2px;">Send message to all users instantly</div>
+          </div>
+          <div style="color:rgba(83,252,24,0.4);font-size:20px;">›</div>
+        </button>
+
+        <!-- ── LAST ANNOUNCEMENT LOGS BTN ── -->
+        <button id="open-logs-btn" style="width:100%;margin-bottom:18px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:11px 16px;display:flex;align-items:center;gap:10px;cursor:pointer;font-family:inherit;transition:all .2s;">
+          <div style="width:30px;height:30px;border-radius:9px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.18);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">📋</div>
+          <div style="flex:1;text-align:left;">
+            <div style="font-size:11px;font-weight:700;color:var(--text-dim);">Last Announcement Logs</div>
+            <div style="font-size:9px;color:#4a5568;margin-top:1px;">View confirmed &amp; pending users</div>
+          </div>
+          <div id="logs-arrow" style="color:#4a5568;font-size:14px;transition:transform .3s;">›</div>
+        </button>
+
+        <!-- ── LOGS PANEL (collapsible) ── -->
+        <div id="announcement-logs-panel" style="overflow:hidden;max-height:0;transition:max-height .35s cubic-bezier(0.4,0,0.2,1);margin-bottom:0;">
+          <div style="background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:16px;overflow:hidden;margin-bottom:18px;">
+            <div style="padding:12px 14px;border-bottom:1px solid var(--glass-border);display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:9px;font-weight:800;color:var(--text-main);letter-spacing:1px;text-transform:uppercase;">Last Announcement</span>
+              <div style="display:flex;gap:5px;">
+                <button class="ann-log-tab active-green" data-tab="ok" style="font-size:9px;font-weight:800;padding:3px 9px;border-radius:6px;border:1px solid rgba(83,252,24,0.22);background:rgba(83,252,24,0.1);color:#53fc18;cursor:pointer;font-family:inherit;">✅ <span id="ann-n-ok">0</span></button>
+                <button class="ann-log-tab" data-tab="wait" style="font-size:9px;font-weight:800;padding:3px 9px;border-radius:6px;border:1px solid var(--glass-border);background:transparent;color:var(--text-dim);cursor:pointer;font-family:inherit;">⏳ <span id="ann-n-wait">0</span></button>
+              </div>
+            </div>
+            <div style="padding:10px;" id="ann-logs-body">
+              <div id="ann-log-ok" style="display:block;"></div>
+              <div id="ann-log-wait" style="display:none;"></div>
+              <div id="ann-logs-empty" style="text-align:center;padding:16px 0;font-size:11px;color:#4a5568;">No announcement sent yet</div>
+            </div>
+            <div style="padding:8px 14px;border-top:1px solid var(--glass-border);display:flex;justify-content:space-between;">
+              <span style="font-size:9px;color:#4a5568;font-weight:600;">Total: <strong id="ann-total" style="color:#53fc18;">0</strong> users</span>
+              <span id="ann-pct" style="font-size:9px;color:#53fc18;font-weight:700;"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── ANNOUNCEMENT HISTORY ── -->
+        <div style="margin-bottom: 18px;">
+          <button id="open-ann-history-btn" style="width:100%;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:11px 16px;display:flex;align-items:center;gap:10px;cursor:pointer;font-family:inherit;transition:all .2s;">
+            <div style="width:30px;height:30px;border-radius:9px;background:rgba(255,193,7,0.1);border:1px solid rgba(255,193,7,0.18);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">📜</div>
+            <div style="flex:1;text-align:left;">
+              <div style="font-size:11px;font-weight:700;color:var(--text-dim);" data-i18n="ann_history">Announcement History</div>
+              <div style="font-size:9px;color:#4a5568;margin-top:1px;" data-i18n="ann_history_sub">All sent announcements with stats</div>
+            </div>
+            <div id="ann-history-arrow" style="color:#4a5568;font-size:14px;transition:transform .3s;">›</div>
+          </button>
+
+          <div id="ann-history-panel" style="overflow:hidden;max-height:0;transition:max-height .35s cubic-bezier(0.4,0,0.2,1);">
+            <div style="background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:16px;overflow:hidden;margin-top:6px;">
+              <div style="padding:10px 14px;border-bottom:1px solid var(--glass-border);display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:9px;font-weight:800;color:var(--text-main);letter-spacing:1px;text-transform:uppercase;" data-i18n="ann_history">HISTORY</span>
+                <button id="clear-ann-history-btn" style="font-size:9px;color:var(--danger);background:none;border:none;cursor:pointer;font-family:inherit;font-weight:700;" data-i18n="clear_all">CLEAR ALL</button>
+              </div>
+              <div id="ann-history-list" style="padding:10px;max-height:320px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--primary) transparent;">
+                <div class="ann-history-empty" data-i18n="no_announcements">No announcements yet</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">GLOBAL CONTROLS</div>
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <span class="form-label" style="margin-bottom: 0;">Master Auto Mode</span>
+            <label class="switch"><input type="checkbox" id="admin-master-auto-toggle"><span class="slider"></span></label>
+          </div>
+        </div>
+
+        <div class="section-title">SCHEDULE SETTINGS</div>
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <span class="form-label" style="margin-bottom: 0;">Multi-Schedule Enabled</span>
+            <label class="switch"><input type="checkbox" id="admin-multischedule-enabled"><span class="slider"></span></label>
+          </div>
+          <div id="admin-multischedule-container" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <span class="form-label" style="margin-bottom: 0; font-size: 10px;">SCHEDULE RULES</span>
+              <button class="btn-icon" id="admin-add-schedule-rule" style="width: 20px; height: 20px; font-size: 14px;">+</button>
+            </div>
+            <div id="admin-schedule-rules-container" style="display: flex; flex-direction: column; gap: 10px;"></div>
+            <button class="btn btn-primary" id="admin-save-settings" style="width: 100%; margin-top: 15px; font-size: 11px;">SAVE SETTINGS</button>
+          </div>
+        </div>
+
+
+
+        <div id="owner-access-manager-card" class="card" style="margin-bottom: 15px; display: none;">
+          <div style="font-size: 10px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px; margin-bottom: 10px;">OWNER ACCESS MANAGER</div>
+          <div style="display: grid; gap: 10px;">
+            <input type="text" id="owner-manage-discord-id" placeholder="Discord ID" style="font-size: 11px; padding: 8px;">
+            <input type="text" id="owner-manage-username" placeholder="Optional username" style="font-size: 11px; padding: 8px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+              <button class="btn btn-outline" id="owner-add-member-btn" style="font-size: 10px;">ADD MEMBER</button>
+              <button class="btn btn-primary" id="owner-add-admin-btn" style="font-size: 10px;">MAKE ADMIN</button>
+              <button class="btn btn-outline" id="owner-remove-access-btn" style="font-size: 10px; border-color: var(--danger); color: var(--danger);">REMOVE ACCESS</button>
+            </div>
+            <div id="owner-manage-status" style="font-size: 10px; color: var(--text-dim); min-height: 14px;"></div>
+          </div>
+        </div>
+
+        <div class="section-title">USER MONITORING</div>
+        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+          <button class="btn btn-outline active" id="admin-view-active" style="flex: 1; font-size: 10px;">ACTIVE USERS</button>
+          <button class="btn btn-outline" id="admin-view-banned" style="flex: 1; font-size: 10px; color: var(--danger);">BANNED / TIMEOUT</button>
+        </div>
+
+        <!-- Active Users List -->
+        <div id="admin-active-users-container">
+          <div class="card" style="margin-bottom: 10px; padding: 10px;">
+            <input type="text" id="admin-user-search" placeholder="Search by username..." style="font-size: 11px; padding: 8px;">
+          </div>
+          <div id="admin-active-list" style="display: grid; gap: 8px;">
+          </div>
+        </div>
+
+        <!-- Banned Users List -->
+        <div id="admin-banned-users-container" style="display: none;">
+          <div id="admin-banned-list" style="display: grid; gap: 8px;">
+          </div>
+        </div>
+
+        <!-- User Detail View (Modal-like) -->
+        <div id="admin-user-detail-overlay" class="detail-overlay" style="display: none;">
+          <div class="detail-content" style="background: #0d1117; border: 1px solid #30363d; border-radius: 24px; padding: 25px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+              <h3 id="detail-username" style="margin: 0; color: #53fc18; font-size: 18px; font-weight: 800;">issam_della1</h3>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <button class="btn-icon" id="close-user-detail" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); color: var(--text-main); width: 32px; height: 32px; border-radius: 8px;">&times;</button>
+                <div id="detail-role-badge" style="display: flex; align-items: center; gap: 5px; color: #53fc18; font-size: 10px; font-weight: 800; letter-spacing: 1px;">
+                  <span>🔒</span> ADMIN
+                </div>
+              </div>
+            </div>
+            
+            <!-- User Monitoring Controls -->
+            <div style="display: grid; gap: 15px;">
+              <!-- User Info -->
+              <div class="card" style="background: rgba(83,252,24,0.05); border-color: rgba(83,252,24,0.1); padding: 12px;">
+                <div style="font-size: 10px; color: var(--text-dim); margin-bottom: 5px; font-weight: 700;">DISCORD ID</div>
+                <div id="detail-discord-id" style="font-size: 12px; color: var(--text-main); font-weight: 600;">N/A</div>
+              </div>
+
+              <div id="detail-owner-controls" style="display: none; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+                <div style="font-size: 10px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px; margin-bottom: 10px;">ACCESS ROLE</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                  <button class="btn btn-outline" id="detail-set-member-btn" style="font-size: 10px;">SET MEMBER</button>
+                  <button class="btn btn-primary" id="detail-set-admin-btn" style="font-size: 10px;">SET ADMIN</button>
+                  <button class="btn btn-outline" id="detail-remove-access-btn" style="font-size: 10px; border-color: var(--danger); color: var(--danger);">REMOVE ACCESS</button>
+                </div>
+                <div id="detail-role-status" style="font-size: 10px; color: var(--text-dim); min-height: 14px; margin-top: 8px;"></div>
+              </div>
+
+              <!-- Moderation Actions -->
+              <div style="display: grid; gap: 10px;">
+                <div style="font-size: 10px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px;">MODERATION ACTIONS</div>
+                
+                <!-- Ban Button -->
+                <button class="btn btn-outline" id="detail-ban-btn" style="background: rgba(255,0,0,0.1); border-color: var(--danger); color: var(--danger); font-size: 11px; font-weight: 700; padding: 10px;">
+                  🚫 BAN
+                </button>
+
+                <!-- Timeout Button -->
+                <button class="btn btn-outline" id="detail-timeout-btn" style="background: rgba(255,193,7,0.1); border-color: #ffc107; color: #ffc107; font-size: 11px; font-weight: 700; padding: 10px;">
+                  ⏰ TIMEOUT
+                </button>
+              </div>
+
+              <!-- Status -->
+              <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+                <div style="font-size: 10px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px; margin-bottom: 10px;">STATUS</div>
+                <div id="detail-moderation-status-card" class="card" style="background: rgba(83,252,24,0.05); border-color: rgba(83,252,24,0.1); padding: 10px; display: flex; justify-content: space-between; align-items: center;">
+                  <div id="detail-moderation-status" style="font-size: 11px; color: var(--primary); font-weight: 700;">✅ ACTIVE</div>
+                  <button id="detail-unban-btn" class="btn btn-outline" style="padding: 4px 8px; font-size: 9px; display: none;">UNBAN</button>
+                </div>
+              </div>
+
+              <!-- Dashboard Stats -->
+              <div id="detail-dashboard-section" style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px; display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                  <div style="font-size: 10px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px;">DASHBOARD</div>
+                  <div style="display: flex; align-items: center; gap: 4px; font-size: 9px; color: #00e676;">
+                    <span style="width: 6px; height: 6px; background: #00e676; border-radius: 50%; display: inline-block;"></span> LIVE
+                  </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                  <div class="stat-card" style="padding: 8px;">
+                    <div style="font-size: 9px; color: var(--text-dim); text-align: center; margin-bottom: 2px;">WATCH TIME</div>
+                    <div id="detail-dash-time" style="font-size: 14px; font-weight: 800; color: var(--text-main); text-align: center;">0m</div>
+                  </div>
+                  <div class="stat-card" style="padding: 8px; border-color: var(--primary-glow);">
+                    <div style="font-size: 9px; color: var(--primary); text-align: center; margin-bottom: 2px;">COMMENTS</div>
+                    <div id="detail-dash-comments" style="font-size: 14px; font-weight: 800; color: var(--primary); text-align: center;">0</div>
+                  </div>
+                </div>
+                <div id="detail-dash-channels" style="display: grid; gap: 6px; max-height: 220px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--primary) transparent;">
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </section>
+
+      
+      <section class="tab-content" id="settings-tab">
+        <div class="section-title" data-i18n="global_settings">GLOBAL SETTINGS</div>
+        <div class="card">
+
+          <!-- LANGUAGE SELECTOR -->
+          <div style="margin-bottom: 18px;">
+            <div class="form-label" data-i18n="language" style="margin-bottom: 8px;">LANGUAGE</div>
+            <div class="lang-selector">
+              <button class="lang-btn active" data-lang="en">🇬🇧 EN</button>
+              <button class="lang-btn" data-lang="fr">🇫🇷 FR</button>
+              <button class="lang-btn" data-lang="es">🇪🇸 ES</button>
+              <button class="lang-btn" data-lang="ar">🇲🇦 AR</button>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <span class="form-label" style="margin-bottom: 0;" data-i18n="global_mute">Global Mute</span>
+            <label class="switch"><input type="checkbox" id="global-mute-toggle" checked><span class="slider"></span></label>
+          </div>
+          
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <span class="form-label" style="margin-bottom: 0;" data-i18n="humanization">Humanization</span>
+            <label class="switch"><input type="checkbox" id="humanization-enabled" checked><span class="slider"></span></label>
+          </div>
+
+          <div id="humanization-settings">
+            <div class="form-group">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <label class="form-label" data-i18n="typing_delay">TYPING DELAY</label>
+                <span id="typing-delay-value" style="font-size: 10px; color: var(--primary); font-weight: 700;">150ms</span>
+              </div>
+              <input type="range" id="typing-delay-slider" min="50" max="1000" step="50" value="150" style="width: 100%;">
+            </div>
+
+            <div class="form-group">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <label class="form-label" data-i18n="typo_chance">TYPO CHANCE</label>
+                <span id="typo-chance-value" style="font-size: 10px; color: var(--primary); font-weight: 700;">3%</span>
+              </div>
+              <input type="range" id="typo-chance-slider" min="0" max="20" step="1" value="3" style="width: 100%;">
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title" data-i18n="stream_opt">STREAM OPTIMIZATION</div>
+        <div class="card">
+          <div class="form-group">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <label class="form-label" style="margin-bottom: 0;" data-i18n="auto_quality">AUTO QUALITY</label>
+              <label class="switch"><input type="checkbox" id="auto-quality-toggle" checked><span class="slider"></span></label>
+            </div>
+            <select id="preferred-quality" style="width: 100%;">
+              <option value="160">160p</option>
+              <option value="360">360p</option>
+              <option value="480">480p</option>
+              <option value="720">720p</option>
+              <option value="1080">1080p</option>
+              <option value="source">Source</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <label class="form-label" data-i18n="volume_boost">VOLUME BOOST</label>
+              <span id="volume-boost-value" style="font-size: 10px; color: var(--primary); font-weight: 700;">100%</span>
+            </div>
+            <input type="range" id="volume-boost-slider" min="1" max="5" step="0.1" value="1" style="width: 100%;">
+            <p style="font-size: 9px; color: var(--text-dim); margin-top: 5px;" data-i18n="volume_hint">Boost volume up to 500% (Requires user interaction on page)</p>
+          </div>
+        </div>
+      </section>
+
+      
+      <!-- DASHBOARD TAB -->
+      <section class="tab-content" id="dashboard-tab">
+        <div class="section-title" data-i18n="session_activity">SESSION ACTIVITY</div>
+        
+        <div class="stats-grid" style="margin-bottom: 15px; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div class="stat-card" style="padding: 10px;">
+            <div class="form-label" style="text-align: center; font-size: 9px; margin-bottom: 2px;" data-i18n="total_watch">TOTAL WATCH TIME</div>
+            <div class="stat-value" id="dash-total-time" style="font-size: 16px;">0h 0m</div>
+          </div>
+          <div class="stat-card" style="padding: 10px;">
+            <div class="form-label" style="text-align: center; font-size: 9px; margin-bottom: 2px;" data-i18n="total_msgs">TOTAL MESSAGES</div>
+            <div class="stat-value" id="dash-total-msgs" style="font-size: 16px;">0</div>
+          </div>
+        </div>
+
+        <div class="section-title" data-i18n="watch_history">WATCH HISTORY</div>
+        <div id="dash-channels-list" style="display: grid; gap: 8px; margin-bottom: 15px;">
+          <!-- Channel cards injected here -->
+        </div>
+
+        <div class="section-title" data-i18n="activity_logs">ACTIVITY LOGS</div>
+        <div class="card" style="padding: 15px;">
+          <div id="activity-log" style="font-family: monospace; font-size: 10px; color: var(--text-dim); height: 200px; overflow-y: auto;">
+            <div style="color: var(--primary); margin-bottom: 5px;">[SYSTEM] Initializing NXS Streamers...</div>
+            <div style="margin-bottom: 5px;">[SYSTEM] Ready for monitoring.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- DEVELOPER TAB — secret, hold theme btn 5s to unlock -->
+      <section class="tab-content" id="developer-tab">
+        <div class="section-title" style="font-size:10px; letter-spacing:2px; color:var(--primary);">⚙️ DEVELOPER MODE</div>
+
+        <!-- Storage Inspector -->
+        <div class="card" style="background:rgba(0,0,0,0.3); border:1px solid rgba(83,252,24,0.15); margin-bottom:12px;">
+          <div style="font-size:10px; font-weight:800; color:var(--primary); letter-spacing:1px; margin-bottom:10px;">📦 STORAGE INSPECTOR</div>
+          <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+            <button id="dev-read-storage" style="padding:5px 10px; background:rgba(83,252,24,0.1); border:1px solid rgba(83,252,24,0.3); border-radius:6px; color:var(--primary); font-size:10px; cursor:pointer; font-weight:700;">READ ALL</button>
+            <button id="dev-clear-channels" style="padding:5px 10px; background:rgba(255,60,60,0.1); border:1px solid rgba(255,60,60,0.3); border-radius:6px; color:#ff6060; font-size:10px; cursor:pointer; font-weight:700;">CLEAR CHANNELS</button>
+            <button id="dev-clear-stats" style="padding:5px 10px; background:rgba(255,60,60,0.1); border:1px solid rgba(255,60,60,0.3); border-radius:6px; color:#ff6060; font-size:10px; cursor:pointer; font-weight:700;">CLEAR STATS</button>
+            <button id="dev-clear-all-storage" style="padding:5px 10px; background:rgba(255,0,0,0.15); border:1px solid rgba(255,0,0,0.4); border-radius:6px; color:#ff4444; font-size:10px; cursor:pointer; font-weight:800;">⚠️ NUKE ALL</button>
+          </div>
+          <pre id="dev-storage-output" style="font-size:9px; color:var(--text-dim); background:rgba(0,0,0,0.4); border-radius:6px; padding:8px; max-height:180px; overflow-y:auto; white-space:pre-wrap; word-break:break-all; margin:0;">Click READ ALL to inspect storage...</pre>
+        </div>
+
+        <!-- API Config -->
+        <div class="card" style="background:rgba(0,0,0,0.3); border:1px solid rgba(83,252,24,0.15); margin-bottom:12px;">
+          <div style="font-size:10px; font-weight:800; color:var(--primary); letter-spacing:1px; margin-bottom:10px;">🌐 API CONFIG — SUPABASE</div>
+          <div style="margin-bottom:8px;">
+            <label class="form-label">UPDATE BACKEND URL (تتحدث عند كل المستخدمين أوتوماتيكياً)</label>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="dev-api-url-input" placeholder="https://your-backend.com" style="flex:1; font-size:11px;">
+              <button id="dev-api-url-save" style="padding:5px 10px; background:rgba(83,252,24,0.1); border:1px solid rgba(83,252,24,0.3); border-radius:6px; color:var(--primary); font-size:10px; cursor:pointer; font-weight:700; white-space:nowrap;">SAVE</button>
+            </div>
+          </div>
+          <div id="dev-api-current" style="font-size:9px; color:var(--text-dim); font-family:monospace;"></div>
+        </div>
+
+        <!-- Extension Info -->
+        <div class="card" style="background:rgba(0,0,0,0.3); border:1px solid rgba(83,252,24,0.15); margin-bottom:12px;">
+          <div style="font-size:10px; font-weight:800; color:var(--primary); letter-spacing:1px; margin-bottom:10px;">🔍 EXTENSION INFO</div>
+          <div id="dev-ext-info" style="font-size:10px; color:var(--text-dim); font-family:monospace; line-height:1.8;"></div>
+        </div>
+
+        <!-- Force Actions -->
+        <div class="card" style="background:rgba(0,0,0,0.3); border:1px solid rgba(83,252,24,0.15);">
+          <div style="font-size:10px; font-weight:800; color:var(--primary); letter-spacing:1px; margin-bottom:10px;">⚡ FORCE ACTIONS</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="dev-force-check" style="padding:5px 10px; background:rgba(83,252,24,0.1); border:1px solid rgba(83,252,24,0.3); border-radius:6px; color:var(--primary); font-size:10px; cursor:pointer; font-weight:700;">FORCE CHECK CHANNELS</button>
+            <button id="dev-reload-ext" style="padding:5px 10px; background:rgba(255,165,0,0.1); border:1px solid rgba(255,165,0,0.3); border-radius:6px; color:#ffa500; font-size:10px; cursor:pointer; font-weight:700;">RELOAD EXTENSION</button>
+            <button id="dev-close-all-tabs" style="padding:5px 10px; background:rgba(255,60,60,0.1); border:1px solid rgba(255,60,60,0.3); border-radius:6px; color:#ff6060; font-size:10px; cursor:pointer; font-weight:700;">CLOSE ALL KICK TABS</button>
+          </div>
+          <div id="dev-action-result" style="margin-top:8px; font-size:10px; color:var(--primary); font-family:monospace; min-height:16px;"></div>
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+
+  <!-- CHANNEL MODAL (for adding/editing) -->
+  <div id="channel-modal" class="modal">
+    <div class="modal-content">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2 id="modal-title" style="font-size: 14px; font-weight: 800; letter-spacing: 1px;">ADD CHANNEL</h2>
+        <button class="btn-icon" id="close-modal">&times;</button>
+      </div>
+
+      <div id="url-input-group" class="form-group">
+        <label class="form-label">KICK CHANNEL URL</label>
+        <input type="text" id="channel-slug-input" placeholder="kick.com/username">
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span class="form-label" style="margin-bottom: 0;">Mute</span>
+          <label class="switch"><input type="checkbox" id="channel-mute-toggle"><span class="slider"></span></label>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span class="form-label" style="margin-bottom: 0;">Auto-Follow</span>
+          <label class="switch"><input type="checkbox" id="channel-follow-toggle" checked><span class="slider"></span></label>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">MAX COMMENTS PER SESSION (0 = unlimited)</label>
+        <input type="number" id="channel-max-comments" value="0" min="0">
+      </div>
+
+      
+      <div class="section-title" style="font-size: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 5px;">STARTING SOON CHAT (10 MIN)</div>
+      <div class="card" style="background: rgba(0,0,0,0.2); border: none; margin-bottom: 15px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <span class="form-label" style="margin-bottom: 0;">Enable Starting Chat</span>
+          <label class="switch"><input type="checkbox" id="starting-enabled"><span class="slider"></span></label>
+        </div>
+        <div class="form-group">
+          <label class="form-label">STARTING MESSAGES (one per line)</label>
+          <textarea id="starting-messages" rows="3" placeholder="Stream starting soon!&#10;Welcome everyone!"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">COOLDOWNS (seconds)</label>
+          <div id="starting-cooldowns" style="display: flex; flex-wrap: wrap; gap: 0px; margin-bottom: 8px;"></div>
+          <button id="add-starting-cd" style="width:100%; padding:7px; background:rgba(255,255,255,0.05); border:1px dashed rgba(255,255,255,0.15); border-radius:8px; color:var(--text-dim); font-size:11px; cursor:pointer; letter-spacing:1px;">+ ADD COOLDOWN</button>
+        </div>
+      </div>
+
+      <div class="section-title" style="font-size: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 5px;">EMOJI SPAM</div>
+      <div class="card" style="background: rgba(0,0,0,0.2); border: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <span class="form-label" style="margin-bottom: 0;">Enable Emojis</span>
+          <label class="switch"><input type="checkbox" id="emoji-enabled" checked><span class="slider"></span></label>
+        </div>
+        <div class="form-group">
+          <label class="form-label">EMOJI LIST (one per line)</label>
+          <textarea id="emoji-list" rows="3" placeholder="🔥&#10;❤️&#10;👑"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">COOLDOWNS (seconds)</label>
+          <div id="emoji-cooldowns" style="display: flex; flex-wrap: wrap; gap: 0px; margin-bottom: 8px;"></div>
+          <button id="add-emoji-cd" style="width:100%; padding:7px; background:rgba(255,255,255,0.05); border:1px dashed rgba(255,255,255,0.15); border-radius:8px; color:var(--text-dim); font-size:11px; cursor:pointer; letter-spacing:1px;">+ ADD COOLDOWN</button>
+        </div>
+      </div>
+
+      
+      <div class="section-title" style="font-size: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 5px; margin-top: 15px;">NORMAL MESSAGES</div>
+      <div class="card" style="background: rgba(0,0,0,0.2); border: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <span class="form-label" style="margin-bottom: 0;">Enable Messages</span>
+          <label class="switch"><input type="checkbox" id="normal-enabled" checked><span class="slider"></span></label>
+        </div>
+        <div class="form-group">
+          <label class="form-label">MESSAGE LIST (one per line)</label>
+          <textarea id="normal-messages" rows="3" placeholder="Great stream!&#10;Let's gooo!"></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label">COOLDOWN TYPE</label>
+          <select id="normal-cooldown-type" style="width: 100%;">
+            <option value="normal">Normal (Random from list)</option>
+            <option value="special">Special (Based on chat speed)</option>
+          </select>
+        </div>
+
+        <div id="normal-cooldown-section">
+          <div class="form-group">
+            <label class="form-label">COOLDOWNS (seconds)</label>
+            <div id="normal-cooldowns" style="display: flex; flex-wrap: wrap; gap: 0px; margin-bottom: 8px;"></div>
+            <button id="add-normal-cd" style="width:100%; padding:7px; background:rgba(255,255,255,0.05); border:1px dashed rgba(255,255,255,0.15); border-radius:8px; color:var(--text-dim); font-size:11px; cursor:pointer; letter-spacing:1px;">+ ADD COOLDOWN</button>
+          </div>
+        </div>
+
+        <div id="normal-special-cooldown-section" style="display: none;">
+          <p style="font-size: 9px; color: var(--text-dim); margin-bottom: 10px;">Send message when chat reaches:</p>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <input type="number" id="special-msg-count" value="100" style="flex: 1;">
+            <span class="form-label" style="margin: 0;">msgs every</span>
+            <input type="number" id="special-time-value" value="5" style="width: 50px;">
+            <select id="special-time-unit" style="width: 60px;">
+              <option value="sec">sec</option>
+              <option value="min" selected>min</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 25px;">
+        <button class="btn btn-outline" id="cancel-channel-btn">CANCEL</button>
+        <button class="btn btn-primary" id="save-channel-btn">SAVE CHANNEL</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="utils.js"></script>
+  <script src="config.js"></script>
+  <!-- MODERN DIALOG SYSTEM -->
+  <div id="asc-dialog-overlay">
+    <div class="asc-dialog" id="asc-dialog-box">
+      <div class="asc-dialog-header">
+        <div class="asc-dialog-icon" id="asc-dialog-icon">⚠️</div>
+        <div class="asc-dialog-title" id="asc-dialog-title">NOTICE</div>
+      </div>
+      <div class="asc-dialog-body">
+        <div class="asc-dialog-message" id="asc-dialog-message"></div>
+        <div class="asc-dialog-detail" id="asc-dialog-detail" style="display:none"></div>
+        <div class="asc-dialog-timer" id="asc-dialog-timer" style="display:none">
+          <div class="asc-dialog-timer-icon">⏱️</div>
+          <div class="asc-dialog-timer-text" id="asc-dialog-timer-label">Time remaining:</div>
+          <div class="asc-dialog-timer-countdown" id="asc-dialog-timer-value">--:--</div>
+        </div>
+        <input class="asc-dialog-input" id="asc-dialog-input" type="text" style="display:none" />
+      </div>
+      <div class="asc-dialog-actions" id="asc-dialog-actions"></div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+  <script src="features.js"></script>
+</body>
+</html>

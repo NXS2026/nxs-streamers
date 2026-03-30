@@ -1,0 +1,49 @@
+services:
+  - type: web
+    name: nxs-streamers-backend
+    runtime: node
+    rootDir: NXS_Backend
+    plan: starter
+    region: frankfurt
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DATA_DIR
+        value: /opt/render/project/src/data
+      - key: OTP_TTL_MINUTES
+        value: 5
+      - key: ACTIVE_USER_TTL_SECONDS
+        value: 120
+      - key: ALLOW_ALL_USERS
+        value: false
+      - key: OTP_DEBUG
+        value: false
+      - key: AUTO_BOOTSTRAP_FIRST_ADMIN
+        value: false
+      - key: OWNER_IDS
+        value: 600869317348950016
+      - key: ADMIN_IDS
+        value: ""
+      - key: USER_IDS
+        value: ""
+      - key: DEFAULT_ALLOWED_URLS
+        value: ""
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: DISCORD_OTP_WEBHOOK_URL
+        sync: false
+      - key: SUPABASE_URL
+        value: https://efwfxifmbbdwfvjdfnsw.supabase.co
+      - key: SUPABASE_ANON_KEY
+        value: sb_publishable_bYo6Y9c3quDriSl090eQqQ_I6KnKWYH
+      - key: PUBLIC_BACKEND_URL
+        sync: false
+      - key: TUNNEL_SUBDOMAIN
+        value: ""
+    disk:
+      name: data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
