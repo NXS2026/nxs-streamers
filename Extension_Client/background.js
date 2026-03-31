@@ -20,6 +20,10 @@ function normalizeBackendUrl(url = "") {
   return String(url || "").trim().replace(/\/+$/, "");
 }
 
+function normalizeMaxOpenChannels(value) {
+  return Math.max(0, parseInt(value, 10) || 0);
+}
+
 // Initialize Supabase realtime listener
 async function initSupabaseRealtimeListener() {
   if (!BG_SUPABASE_URL || BG_SUPABASE_URL === "YOUR_SUPABASE_URL") {
@@ -292,12 +296,15 @@ chrome.runtime.onInstalled.addListener(() => {
   }
   // Persist API URL on install
   chrome.storage.local.set({ API_BASE_URL: BG_CONFIG_API_URL });
-  chrome.storage.local.get(['channels', 'masterAutoMode', 'stats', 'globalMute'], (result) => {
+  chrome.storage.local.get(['channels', 'masterAutoMode', 'stats', 'globalMute', 'maxOpenChannels'], (result) => {
     if (!result.channels) chrome.storage.local.set({ channels: [] });
     if (result.masterAutoMode === undefined) chrome.storage.local.set({ masterAutoMode: true });
     // Force Global Mute to ON by default
     if (result.globalMute === undefined || result.globalMute === null) {
       chrome.storage.local.set({ globalMute: true });
+    }
+    if (result.maxOpenChannels === undefined || result.maxOpenChannels === null) {
+      chrome.storage.local.set({ maxOpenChannels: 0 });
     }
     if (!result.stats) chrome.storage.local.set({ stats: {} });
   });
@@ -489,18 +496,26 @@ async function isWithinSchedule() {
 
 async function checkAllChannels() {
   const inSchedule = await isWithinSchedule();
-  const data = await chrome.storage.local.get(['channels', 'masterAutoMode', 'globalMute']);
+  const data = await chrome.storage.local.get(['channels', 'masterAutoMode', 'globalMute', 'maxOpenChannels']);
   if (!data.channels || data.channels.length === 0) return;
 
   const channels = [...data.channels];
   const masterAutoMode = data.masterAutoMode;
   const globalMute = data.globalMute !== false;
+  const maxOpenChannels = normalizeMaxOpenChannels(data.maxOpenChannels);
+  let openLiveCount = 0;
 
   for (let i = 0; i < channels.length; i++) {
     const channel = channels[i];
     const isAutoEnabled = inSchedule && (masterAutoMode || channel.autoMode);
+    const hasLiveSlot = maxOpenChannels === 0 || openLiveCount < maxOpenChannels;
     try {
-      await syncChannelStatus(channel, i, channels, isAutoEnabled, globalMute);
+      await syncChannelStatus(channel, i, channels, isAutoEnabled, globalMute, hasLiveSlot);
+
+      const updatedChannel = channels[i];
+      if (updatedChannel?.isLive && updatedChannel?.openedTabId) {
+        openLiveCount++;
+      }
       
       // Live Watch Time Tracking: only if tab is open AND channel is live
       if (channel.openedTabId && channel.isLive) {
@@ -586,7 +601,7 @@ async function checkUrlWhitelist(url) {
   }
 }
 
-async function syncChannelStatus(channel, index, allChannels, isAutoEnabled, globalMute) {
+async function syncChannelStatus(channel, index, allChannels, isAutoEnabled, globalMute, hasLiveSlot = true) {
   try {
     let response = null;
     let retries = 2;
@@ -645,6 +660,11 @@ async function syncChannelStatus(channel, index, allChannels, isAutoEnabled, glo
 
       if (isAutoEnabled) {
         if (isLive && !existingTab) {
+          if (!hasLiveSlot) {
+            allChannels[index].openedTabId = null;
+            return;
+          }
+
           // Check whitelist before opening tab
           const isWhitelisted = await checkUrlWhitelist(`kick.com/${channel.slug}`);
           if (!isWhitelisted) {
@@ -681,6 +701,17 @@ async function syncChannelStatus(channel, index, allChannels, isAutoEnabled, glo
             console.warn(`Failed to remove tab for ${channel.slug}:`, removeError);
           }
         } else if (existingTab) {
+          if (isLive && !hasLiveSlot) {
+            try {
+              await chrome.tabs.remove(existingTab.id);
+              allChannels[index].openedTabId = null;
+              await finalizeWatchTime(channel.id);
+            } catch (removeError) {
+              console.warn(`Failed to remove extra tab for ${channel.slug}:`, removeError);
+            }
+            return;
+          }
+
           // Check whitelist for existing tab (e.g. if someone changed channel manually)
           const isWhitelisted = await checkUrlWhitelist(`kick.com/${channel.slug}`);
           if (!isWhitelisted) {
@@ -701,7 +732,7 @@ async function syncChannelStatus(channel, index, allChannels, isAutoEnabled, glo
             }
           }
         }
-      } else if (existingTab && !inSchedule) {
+      } else if (existingTab) {
         try {
           await chrome.tabs.remove(existingTab.id);
           allChannels[index].openedTabId = null;

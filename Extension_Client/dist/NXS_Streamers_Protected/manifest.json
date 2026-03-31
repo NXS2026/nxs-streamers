@@ -18,7 +18,9 @@
     "downloads" 
   ],
   "host_permissions": [
-    "https://kick.com/*"
+    "https://kick.com/*",
+    "https://*.supabase.co/*",
+    "https://*.onrender.com/*"
   ],
   "action": {
     "default_popup": "popup.html",

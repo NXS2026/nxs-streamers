@@ -521,6 +521,12 @@
             <label class="switch"><input type="checkbox" id="humanization-enabled" checked><span class="slider"></span></label>
           </div>
 
+          <div class="form-group" style="margin-bottom: 15px;">
+            <label class="form-label" for="max-open-channels">MAX OPEN LIVE CHANNELS</label>
+            <input type="number" id="max-open-channels" min="0" step="1" value="0">
+            <p style="font-size: 9px; color: var(--text-dim); margin-top: 5px;">Set `0` for unlimited. Extra live channels will wait until a slot is free.</p>
+          </div>
+
           <div id="humanization-settings">
             <div class="form-group">
               <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">

@@ -1091,6 +1091,7 @@ document.getElementById("save-channel-btn").onclick = async () => {
 async function saveGlobalSettings() {
   await chrome.storage.local.set({
     globalMute: document.getElementById("global-mute-toggle").checked,
+    maxOpenChannels: Math.max(0, parseInt(document.getElementById("max-open-channels").value, 10) || 0),
     humanizationEnabled: document.getElementById("humanization-enabled").checked,
     typingDelay: parseInt(document.getElementById("typing-delay-slider").value),
     typoChance: parseInt(document.getElementById("typo-chance-slider").value)
@@ -1411,6 +1412,22 @@ async function loadInitialData() {
       await chrome.storage.local.set({ globalMute: e.target.checked });
       chrome.runtime.sendMessage({ action: "checkNow" }).catch(() => {});
       console.log("Global Mute saved:", e.target.checked);
+    };
+  }
+
+  const maxOpenChannelsInput = document.getElementById("max-open-channels");
+  if (maxOpenChannelsInput) {
+    const currentValue = Math.max(0, parseInt(data.maxOpenChannels, 10) || 0);
+    maxOpenChannelsInput.value = String(currentValue);
+    if (data.maxOpenChannels === undefined) {
+      chrome.storage.local.set({ maxOpenChannels: 0 });
+    }
+    maxOpenChannelsInput.onchange = async (e) => {
+      const value = Math.max(0, parseInt(e.target.value, 10) || 0);
+      e.target.value = String(value);
+      await chrome.storage.local.set({ maxOpenChannels: value });
+      chrome.runtime.sendMessage({ action: "checkNow" }).catch(() => {});
+      console.log("Max open live channels saved:", value);
     };
   }
   
