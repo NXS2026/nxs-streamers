@@ -299,6 +299,26 @@ function isAdmin(db, discordId) {
   return getRole(db, discordId) === 'admin';
 }
 
+function getRoleRank(db, discordId) {
+  const normalized = String(discordId || '');
+  if (!normalized) return 0;
+  if (isOwner(normalized)) return 3;
+
+  const role = getRole(db, normalized);
+  if (role === 'admin') return 2;
+  if (role === 'user') return 1;
+  return 0;
+}
+
+function canApplyRestrictedModeration(db, actorDiscordId, targetDiscordId) {
+  const actorRank = getRoleRank(db, actorDiscordId);
+  const targetRank = getRoleRank(db, targetDiscordId);
+
+  if (actorRank >= 2) return targetRank < 3;
+  if (actorRank === 1) return targetRank < 2;
+  return false;
+}
+
 function isWhitelistedUser(db, discordId) {
   return getRole(db, discordId) !== 'guest';
 }
@@ -1081,6 +1101,10 @@ app.post('/api/admin/moderate', requireAdmin, async (req, res) => {
     return res.status(404).json({ success: false, error: 'Active user not found for the given IP' });
   }
 
+  if ((type === 'ban' || type === 'timeout') && !canApplyRestrictedModeration(db, req.adminId, target.discordId)) {
+    return res.status(403).json({ success: false, error: 'Role hierarchy prevents this moderation action.' });
+  }
+
   if (type === 'kick') {
     await store.update((draft) => {
       draft.moderation.kicks[target.discordId] = {
@@ -1137,6 +1161,11 @@ app.post('/api/admin/moderate', requireAdmin, async (req, res) => {
 app.post('/api/admin/ban', requireAdmin, async (req, res) => {
   const { targetDiscordId, reason = 'Banned by admin', moderatorDiscord } = req.body || {};
   if (!targetDiscordId) return res.status(400).json({ success: false, error: 'targetDiscordId is required' });
+  const db = req.currentDb || await store.read();
+
+  if (!canApplyRestrictedModeration(db, req.adminId, targetDiscordId)) {
+    return res.status(403).json({ success: false, error: 'Role hierarchy prevents this moderation action.' });
+  }
 
   await store.update((draft) => {
     draft.moderation.bans[targetDiscordId] = {
@@ -1163,6 +1192,12 @@ app.post('/api/admin/timeout', requireAdmin, async (req, res) => {
   } = req.body || {};
 
   if (!targetDiscordId) return res.status(400).json({ success: false, error: 'targetDiscordId is required' });
+  const db = req.currentDb || await store.read();
+
+  if (!canApplyRestrictedModeration(db, req.adminId, targetDiscordId)) {
+    return res.status(403).json({ success: false, error: 'Role hierarchy prevents this moderation action.' });
+  }
+
   const expires = new Date(Date.now() + Number(durationMinutes) * 60 * 1000).toISOString();
 
   await store.update((draft) => {

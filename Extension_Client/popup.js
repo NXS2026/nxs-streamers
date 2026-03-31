@@ -307,6 +307,43 @@ function setTextStatus(elementId, message = "", color = "var(--text-dim)") {
   element.style.color = color;
 }
 
+function getCurrentViewerRoleRank() {
+  if (currentViewerIsOwner) return 3;
+  if (currentViewerIsAdmin) return 2;
+  return 1;
+}
+
+function getKnownUserRoleRank(user) {
+  if (!user) return 0;
+  if (user.isOwner) return 3;
+  if (user.role === "admin") return 2;
+  if (user.role === "user" || user.whitelisted !== false) return 1;
+  return 0;
+}
+
+function canCurrentViewerUseRestrictedModeration(user) {
+  const viewerRank = getCurrentViewerRoleRank();
+  const targetRank = getKnownUserRoleRank(user);
+
+  if (viewerRank >= 2) return targetRank < 3;
+  if (viewerRank === 1) return targetRank < 2;
+  return false;
+}
+
+function updateDetailModerationControls(user = currentDetailUser) {
+  const banBtn = document.getElementById("detail-ban-btn");
+  const timeoutBtn = document.getElementById("detail-timeout-btn");
+  const canModerate = !!user && canCurrentViewerUseRestrictedModeration(user);
+
+  if (banBtn) {
+    banBtn.style.display = canModerate ? "block" : "none";
+  }
+
+  if (timeoutBtn) {
+    timeoutBtn.style.display = canModerate ? "block" : "none";
+  }
+}
+
 function updateOwnerAccessVisibility() {
   const ownerCard = document.getElementById("owner-access-manager-card");
   const ownerCardTitle = document.getElementById("owner-access-manager-title");
@@ -343,10 +380,13 @@ function updateOwnerAccessVisibility() {
   if (detailAdminBtn) {
     detailAdminBtn.style.display = currentViewerIsOwner ? "inline-block" : "none";
   }
+
+  updateDetailModerationControls(currentDetailUser);
 }
 
 function updateDetailRoleUI(user) {
   applyRoleBadge(document.getElementById("detail-role-badge"), user);
+  updateDetailModerationControls(user);
 
   if (!user) {
     setTextStatus("detail-role-status", "");
@@ -2780,6 +2820,10 @@ async function updateModerationStatus(user) {
 if (document.getElementById('detail-ban-btn')) {
   document.getElementById('detail-ban-btn').onclick = async () => {
     if (!currentDetailUser) return;
+    if (!canCurrentViewerUseRestrictedModeration(currentDetailUser)) {
+      await ASCDialog.alert("You cannot ban this account because of role hierarchy.");
+      return;
+    }
     
     const formResult = await ASCDialog.form({
       type: 'danger',
@@ -2826,6 +2870,10 @@ if (document.getElementById('detail-ban-btn')) {
 if (document.getElementById('detail-timeout-btn')) {
   document.getElementById('detail-timeout-btn').onclick = async () => {
     if (!currentDetailUser) return;
+    if (!canCurrentViewerUseRestrictedModeration(currentDetailUser)) {
+      await ASCDialog.alert("You cannot timeout this account because of role hierarchy.");
+      return;
+    }
     
     const formResult = await ASCDialog.form({
       type: 'danger',
