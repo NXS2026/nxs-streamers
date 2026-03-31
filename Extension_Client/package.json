@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:integrity": "node scripts/generate-integrity.mjs",
     "build:protected": "node scripts/build-protected.mjs"
   },
   "devDependencies": {

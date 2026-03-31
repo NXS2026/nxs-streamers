@@ -77,6 +77,18 @@ function generateOtpCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
+function getGeneratedUsername(discordId, prefix = 'user') {
+  return `${prefix}-${String(discordId || '').slice(-4)}`;
+}
+
+function isGeneratedUsername(username, discordId) {
+  const value = String(username || '').trim();
+  if (!value) return true;
+
+  const suffix = String(discordId || '').slice(-4);
+  return value === `owner-${suffix}` || value === `admin-${suffix}` || value === `user-${suffix}`;
+}
+
 function discordHeaders() {
   return {
     Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
@@ -84,7 +96,59 @@ function discordHeaders() {
   };
 }
 
-async function sendDiscordOtpDm({ discordId, code, username, role }) {
+function formatDiscordDisplayName(profile = {}) {
+  const username = String(profile.username || '').trim();
+  const globalName = String(profile.global_name || '').trim();
+
+  if (globalName && username && globalName !== username) {
+    return `${globalName} (@${username})`;
+  }
+
+  return globalName || username || null;
+}
+
+async function fetchDiscordProfile(discordId) {
+  if (!DISCORD_BOT_TOKEN || !discordId) return null;
+
+  try {
+    const response = await fetch(`https://discord.com/api/v10/users/${encodeURIComponent(String(discordId))}`, {
+      method: 'GET',
+      headers: discordHeaders()
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Discord profile lookup failed (${response.status}): ${body}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    console.warn(`[Discord] Failed to fetch profile for ${discordId}:`, error.message);
+    return null;
+  }
+}
+
+async function resolveDiscordUsername({ db, discordId, preferredUsername = '', fallbackPrefix = 'user' }) {
+  const preferred = String(preferredUsername || '').trim();
+  if (preferred && !isGeneratedUsername(preferred, discordId)) {
+    return preferred;
+  }
+
+  const storedUsername = String(getUserRecord(db, discordId)?.username || '').trim();
+  if (storedUsername && !isGeneratedUsername(storedUsername, discordId)) {
+    return storedUsername;
+  }
+
+  const profile = await fetchDiscordProfile(discordId);
+  const profileName = formatDiscordDisplayName(profile);
+  if (profileName) {
+    return profileName;
+  }
+
+  return preferred || storedUsername || getGeneratedUsername(discordId, fallbackPrefix);
+}
+
+async function sendDiscordDirectMessage({ discordId, content }) {
   if (!DISCORD_BOT_TOKEN) {
     return { ok: false, method: 'bot_dm', error: 'DISCORD_BOT_TOKEN is not configured' };
   }
@@ -102,19 +166,10 @@ async function sendDiscordOtpDm({ discordId, code, username, role }) {
     }
 
     const channelData = await channelRes.json();
-    const message = [
-      `NXS Streamers OTP`,
-      `Hello ${username || 'there'},`,
-      ``,
-      `Your login code is: \`${code}\``,
-      `Role: ${role}`,
-      `This code expires in ${Math.round(OTP_TTL_MS / 60000)} minutes.`
-    ].join('\n');
-
     const sendRes = await fetch(`https://discord.com/api/v10/channels/${channelData.id}/messages`, {
       method: 'POST',
       headers: discordHeaders(),
-      body: JSON.stringify({ content: message })
+      body: JSON.stringify({ content })
     });
 
     if (!sendRes.ok) {
@@ -126,6 +181,19 @@ async function sendDiscordOtpDm({ discordId, code, username, role }) {
   } catch (error) {
     return { ok: false, method: 'bot_dm', error: error.message };
   }
+}
+
+async function sendDiscordOtpDm({ discordId, code, username, role }) {
+  const message = [
+    `NXS Streamers OTP`,
+    `Hello ${username || 'there'},`,
+    ``,
+    `Your login code is: \`${code}\``,
+    `Role: ${role}`,
+    `This code expires in ${Math.round(OTP_TTL_MS / 60000)} minutes.`
+  ].join('\n');
+
+  return sendDiscordDirectMessage({ discordId, content: message });
 }
 
 async function sendDiscordOtpWebhook({ discordId, code, username, role }) {
@@ -196,6 +264,74 @@ async function deliverOtpToDiscord({ discordId, code, username, role }) {
     ok: false,
     method: 'none',
     error: attempts.map((attempt) => `${attempt.method}: ${attempt.error}`).join(' | ')
+  };
+}
+
+async function sendSecurityAlertWebhook(content) {
+  if (!DISCORD_OTP_WEBHOOK_URL) {
+    return { ok: false, method: 'webhook', error: 'DISCORD_OTP_WEBHOOK_URL is not configured' };
+  }
+
+  try {
+    const response = await fetch(DISCORD_OTP_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content,
+        username: 'NXS Security Alert'
+      })
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Webhook send failed (${response.status}): ${body}`);
+    }
+
+    return { ok: true, method: 'webhook' };
+  } catch (error) {
+    return { ok: false, method: 'webhook', error: error.message };
+  }
+}
+
+async function deliverSecurityAlertToDiscord(alert) {
+  const lines = [
+    `NXS Streamers Security Alert`,
+    `Type: ${alert.type || 'tamper_detected'}`,
+    `Extension: ${alert.extensionName || 'NXS Streamers'} v${alert.version || 'unknown'}`,
+    `Extension ID: ${alert.extensionId || 'unknown'}`,
+    `Build: ${alert.buildType || 'unknown'}`,
+    `Detected: ${alert.detectedAt || nowIso()}`,
+    `User ID: ${alert.userDiscordId || 'unknown'}`,
+    `Files: ${(alert.files || []).map((file) => file.path).join(', ') || 'unknown'}`
+  ];
+
+  if (alert.reason) {
+    lines.push(`Reason: ${alert.reason}`);
+  }
+
+  const content = lines.join('\n');
+  const ownerIds = Array.from(OWNER_IDS);
+  const attempts = [];
+
+  for (const ownerId of ownerIds) {
+    const result = await sendDiscordDirectMessage({ discordId: ownerId, content });
+    attempts.push({ ownerId, ...result });
+    if (result.ok) {
+      return { ok: true, method: 'bot_dm', ownerId, attempts };
+    }
+  }
+
+  const webhookResult = await sendSecurityAlertWebhook(content);
+  attempts.push({ ownerId: null, ...webhookResult });
+  if (webhookResult.ok) {
+    return { ok: true, method: 'webhook', attempts };
+  }
+
+  return {
+    ok: false,
+    method: 'none',
+    error: attempts.map((attempt) => `${attempt.method}${attempt.ownerId ? `:${attempt.ownerId}` : ''}: ${attempt.error}`).join(' | '),
+    attempts
   };
 }
 
@@ -586,7 +722,12 @@ app.get('/api/request-otp', async (req, res) => {
   }
 
   const code = generateOtpCode();
-  const username = getUserRecord(db, discordId)?.username || `admin-${discordId.slice(-4)}`;
+  const username = await resolveDiscordUsername({
+    db,
+    discordId,
+    preferredUsername: getUserRecord(db, discordId)?.username,
+    fallbackPrefix: 'admin'
+  });
   const otpEntry = {
     id: createId(),
     discordId,
@@ -638,7 +779,12 @@ app.get('/api/request-user-otp', async (req, res) => {
   }
 
   const code = generateOtpCode();
-  const username = getUserRecord(db, discordId)?.username || `user-${discordId.slice(-4)}`;
+  const username = await resolveDiscordUsername({
+    db,
+    discordId,
+    preferredUsername: getUserRecord(db, discordId)?.username,
+    fallbackPrefix: 'user'
+  });
   const role = isAdmin(db, discordId) ? 'admin' : 'user';
   const otpEntry = {
     id: createId(),
@@ -706,7 +852,12 @@ app.get('/api/verify-otp', async (req, res) => {
   }
 
   const role = request.role === 'admin' || isAdmin(db, discordId) ? 'admin' : 'user';
-  const username = request.username || `${role}-${discordId.slice(-4)}`;
+  const username = await resolveDiscordUsername({
+    db,
+    discordId,
+    preferredUsername: request.username,
+    fallbackPrefix: role
+  });
 
   await store.update((draft) => {
     draft.otpRequests = draft.otpRequests.filter((entry) => entry.id !== request.id);
@@ -772,6 +923,102 @@ app.post('/api/notify-whitelist-error', async (req, res) => {
   });
 
   res.json({ success: true });
+});
+
+app.post('/api/security/tamper-alert', async (req, res) => {
+  const {
+    extensionId = '',
+    extensionName = 'NXS Streamers',
+    version = 'unknown',
+    buildType = 'unknown',
+    userDiscordId = '',
+    reason = '',
+    detectedAt = nowIso(),
+    files = [],
+    signature = ''
+  } = req.body || {};
+
+  if (!extensionId) {
+    return res.status(400).json({ success: false, error: 'extensionId is required' });
+  }
+
+  if (!Array.isArray(files) || files.length === 0) {
+    return res.status(400).json({ success: false, error: 'files is required' });
+  }
+
+  const normalizedFiles = files
+    .map((file) => ({
+      path: String(file?.path || '').trim(),
+      expectedHash: String(file?.expectedHash || '').trim(),
+      actualHash: String(file?.actualHash || '').trim()
+    }))
+    .filter((file) => file.path);
+
+  if (normalizedFiles.length === 0) {
+    return res.status(400).json({ success: false, error: 'files is required' });
+  }
+
+  const alertSignature = signature || crypto
+    .createHash('sha256')
+    .update(JSON.stringify({ extensionId, version, buildType, userDiscordId, files: normalizedFiles }))
+    .digest('hex');
+
+  const createdAt = nowIso();
+  let duplicate = false;
+
+  await store.update((draft) => {
+    const recentAlert = (draft.securityAlerts || []).find((alert) =>
+      alert.signature === alertSignature &&
+      (Date.now() - new Date(alert.createdAt).getTime()) < 10 * 60 * 1000
+    );
+
+    duplicate = !!recentAlert;
+    draft.securityAlerts.unshift({
+      id: createId(),
+      type: 'tamper_detected',
+      extensionId,
+      extensionName,
+      version,
+      buildType,
+      userDiscordId: String(userDiscordId || ''),
+      reason: String(reason || ''),
+      detectedAt,
+      createdAt,
+      signature: alertSignature,
+      files: normalizedFiles
+    });
+    draft.securityAlerts = draft.securityAlerts.slice(0, 200);
+    return draft;
+  });
+
+  if (duplicate) {
+    return res.json({ success: true, duplicate: true, notified: false });
+  }
+
+  const delivery = await deliverSecurityAlertToDiscord({
+    type: 'tamper_detected',
+    extensionId,
+    extensionName,
+    version,
+    buildType,
+    userDiscordId,
+    reason,
+    detectedAt,
+    files: normalizedFiles
+  });
+
+  if (!delivery.ok) {
+    console.warn('[Security] Tamper alert saved but Discord delivery failed:', delivery.error);
+  } else {
+    console.log('[Security] Tamper alert delivered:', delivery.method);
+  }
+
+  return res.json({
+    success: true,
+    duplicate: false,
+    notified: delivery.ok,
+    deliveryMethod: delivery.method
+  });
 });
 
 app.get('/api/global-schedule', async (_req, res) => {

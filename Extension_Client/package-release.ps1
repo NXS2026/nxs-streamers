@@ -45,6 +45,7 @@ try {
     'stream_uptime.js',
     'utils.js',
     'modern-theme.css',
+    'INTEGRITY.json',
     'BUILD_INFO.json',
     'icons'
   )

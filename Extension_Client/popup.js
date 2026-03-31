@@ -235,38 +235,89 @@ let currentViewerIsAdmin = false;
 let currentDetailUser = null;
 
 // ============================================================
-// LOGOUT BUTTON HANDLER
-document.getElementById("logout-btn").onclick = async () => {
-  const confirmed = await ASCDialog.confirm("You will be logged out and returned to the login screen. Continue?", { confirmLabel: "LOGOUT", cancelLabel: "Cancel" });
-  if (!confirmed) return;
-  
-  // Clear all login data
+// LOGOUT HANDLERS
+function resetPopupToLoggedOutState() {
+  currentViewerIsOwner = false;
+  currentViewerIsAdmin = false;
+  currentDetailUser = null;
+
+  document.getElementById("main-panel").style.display = "none";
+  document.getElementById("login-screen").style.display = "flex";
+
+  [
+    "ban-embed",
+    "offline-overlay",
+    "schedule-lock-overlay",
+    "whitelist-error-embed",
+    "announcement-overlay",
+    "announcement-send-overlay",
+    "admin-user-detail-overlay"
+  ].forEach((id) => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.style.display = "none";
+    }
+  });
+
+  const loginStep1 = document.getElementById("login-step-1");
+  const loginStep2 = document.getElementById("login-step-2");
+  const loginBackBtn = document.getElementById("login-back-btn");
+  const loginDiscordId = document.getElementById("login-discord-id");
+  const loginOtpCode = document.getElementById("login-otp-code");
+  const loginStatus = document.getElementById("login-status");
+
+  loginStep1.style.display = "block";
+  loginStep2.style.display = "none";
+  loginBackBtn.style.display = "none";
+  loginDiscordId.value = "";
+  loginOtpCode.value = "";
+  loginStatus.textContent = "Enter Discord ID to receive OTP";
+  loginStatus.style.color = "var(--text-dim)";
+
+  document.querySelectorAll(".tab-btn").forEach((btn) => btn.classList.remove("active"));
+  document.querySelectorAll(".tab-content").forEach((content) => content.classList.remove("active"));
+
+  const channelsTabBtn = document.querySelector('.tab-btn[data-tab="channels"]');
+  const channelsTab = document.getElementById("channels-tab");
+  if (channelsTabBtn) channelsTabBtn.classList.add("active");
+  if (channelsTab) channelsTab.classList.add("active");
+
+  if (typeof closeModal === "function") {
+    closeModal();
+  }
+
+  updateOwnerAccessVisibility();
+  updateUserStatusDisplay();
+}
+
+async function performLogout() {
   await chrome.storage.local.set({
     isUserLoggedIn: false,
     isAdminVerified: false,
     isUserVerified: false,
     isOwnerVerified: false,
-    userDiscordId: null
+    userDiscordId: null,
+    isBanned: false,
+    banData: null,
+    isKicked: false,
+    kickData: null,
+    isOffline: false
   });
-  currentViewerIsOwner = false;
-  currentDetailUser = null;
-  updateOwnerAccessVisibility();
-  
-  // Hide main panel and show login screen
-  document.getElementById("main-panel").style.display = "none";
-  document.getElementById("login-screen").style.display = "flex";
-  
-  // Reset login form
-  document.getElementById("login-step-1").style.display = "block";
-  document.getElementById("login-step-2").style.display = "none";
-  document.getElementById("login-back-btn").style.display = "none";
-  document.getElementById("login-discord-id").value = "";
-  document.getElementById("login-otp-code").value = "";
-  document.getElementById("login-status").textContent = "Enter Discord ID to receive OTP";
-  document.getElementById("login-status").style.color = "var(--text-dim)";
-  
+  resetPopupToLoggedOutState();
+}
+
+async function handleLogoutRequest() {
+  const confirmed = await ASCDialog.confirm("You will be logged out and returned to the login screen. Continue?", { confirmLabel: "LOGOUT", cancelLabel: "Cancel" });
+  if (!confirmed) return;
+
+  await performLogout();
   await ASCDialog.success("Logout successful! You have been returned to the login screen.");
-};
+}
+
+document.getElementById("logout-btn").onclick = handleLogoutRequest;
+if (document.getElementById("settings-logout-btn")) {
+  document.getElementById("settings-logout-btn").onclick = handleLogoutRequest;
+}
 
 // GET API BASE URL — reads from chrome.storage (set by background/config)
 async function getPopupApiUrl() {

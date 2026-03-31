@@ -1,0 +1,19 @@
+{
+  "name": "NXS Streamers",
+  "version": "1.0",
+  "buildType": "source",
+  "generatedAt": "2026-03-31T12:48:06.649Z",
+  "algorithm": "sha256",
+  "files": {
+    "manifest.json": "acd28c5c2d3610f8d8e9733fc17beccbce71da44d55c903817704f4554b92f35",
+    "popup.html": "4d9d303a6be77bce05eeeb166f777aba0e939654139f63b8513c1e01c6af274f",
+    "popup.js": "3a8e87273f315b16065d57d817eec50c18494979baac8621efbc57810f6eed72",
+    "background.js": "958318404d86d1267aecf9ba4223bb88f1ee1b859def994a7caf5585862fe20a",
+    "config.js": "255cf80f5139e7a05c02a73f9c58c6b5ecb79c22234dc5e4bccaa0b26469e10c",
+    "features.js": "97709eb098831be7286ac644638dba607cb2784111c5a559fb6bebf4dd26f026",
+    "kick_automation.js": "f31b8e836d9df3052002c9e037ccb7cd2b269c6a413fa01eac2cf576aa0180bf",
+    "stream_uptime.js": "04373f99bc7cdaad0508df09d2186d6afa11a097a511a20c40dd1d29c303bd2f",
+    "utils.js": "a401f82a4bceb4e75387a6ddb424886317876c63ae91afe690f652bf7937ff97",
+    "modern-theme.css": "c4ba5a8f55668c525261274fff6f960a000baef68f0e1fd97f59191476cb4cd2"
+  }
+}

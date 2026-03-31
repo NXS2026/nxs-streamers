@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 import JavaScriptObfuscator from 'javascript-obfuscator';
+import { generateIntegrityFile } from './integrity-lib.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -143,6 +144,7 @@ async function main() {
     await obfuscateFile(filePath);
   }
 
+  await generateIntegrityFile(distDir, { buildType: 'protected' });
   await writeBuildInfo(jsFiles);
 
   console.log(`Protected build created at: ${distDir}`);

@@ -10,6 +10,11 @@ try {
 let supabaseRealtimeChannel = null;
 const BG_SUPABASE_URL = globalThis.APP_CONFIG?.supabase?.url || "YOUR_SUPABASE_URL";
 const BG_CONFIG_API_URL = globalThis.APP_CONFIG?.api?.fallbackUrl || "http://localhost:3000";
+const ENABLE_INTEGRITY_MONITORING = globalThis.APP_CONFIG?.security?.enableIntegrityMonitoring !== false;
+const INTEGRITY_CHECK_INTERVAL_MINUTES = Math.max(
+  1,
+  Number(globalThis.APP_CONFIG?.security?.integrityCheckIntervalMinutes || 10)
+);
 
 function normalizeBackendUrl(url = "") {
   return String(url || "").trim().replace(/\/+$/, "");
@@ -69,6 +74,113 @@ async function initSupabaseRealtimeListener() {
 setInterval(initSupabaseRealtimeListener, 30000);
 
 const ALARM_NAME = 'kick-pro-check';
+const INTEGRITY_ALARM_NAME = 'nxs-integrity-check';
+
+function bytesToHex(buffer) {
+  return Array.from(new Uint8Array(buffer))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function sha256Hex(content) {
+  const encoded = new TextEncoder().encode(content);
+  const digest = await crypto.subtle.digest('SHA-256', encoded);
+  return bytesToHex(digest);
+}
+
+async function loadIntegrityManifest() {
+  const response = await fetch(chrome.runtime.getURL('INTEGRITY.json'), { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`Failed to load INTEGRITY.json (${response.status})`);
+  }
+  return response.json();
+}
+
+async function inspectExtensionIntegrity() {
+  const integrity = await loadIntegrityManifest();
+  const entries = Object.entries(integrity.files || {});
+  const mismatches = [];
+
+  for (const [relativePath, expectedHash] of entries) {
+    try {
+      const response = await fetch(chrome.runtime.getURL(relativePath), { cache: 'no-store' });
+      if (!response.ok) {
+        mismatches.push({ path: relativePath, expectedHash, actualHash: 'unreadable' });
+        continue;
+      }
+
+      const content = await response.text();
+      const actualHash = await sha256Hex(content);
+      if (actualHash !== expectedHash) {
+        mismatches.push({ path: relativePath, expectedHash, actualHash });
+      }
+    } catch (error) {
+      mismatches.push({
+        path: relativePath,
+        expectedHash,
+        actualHash: `error:${error.message}`
+      });
+    }
+  }
+
+  return {
+    integrity,
+    mismatches,
+    signature: mismatches.length ? await sha256Hex(JSON.stringify(mismatches)) : ''
+  };
+}
+
+async function notifyTamperAlert(result, trigger = 'startup') {
+  if (!result?.mismatches?.length) {
+    await chrome.storage.local.remove(['lastTamperAlertSignature', 'lastTamperAlertAt']).catch(() => {});
+    return;
+  }
+
+  const storage = await chrome.storage.local.get(['lastTamperAlertSignature', 'userDiscordId']);
+  if (storage.lastTamperAlertSignature === result.signature) {
+    return;
+  }
+
+  try {
+    const baseUrl = await getBackgroundApiUrl();
+    await fetch(`${baseUrl}/api/security/tamper-alert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        extensionId: chrome.runtime.id,
+        extensionName: chrome.runtime.getManifest().name,
+        version: chrome.runtime.getManifest().version,
+        buildType: result.integrity?.buildType || 'unknown',
+        userDiscordId: storage.userDiscordId || '',
+        reason: `Integrity mismatch detected during ${trigger}`,
+        detectedAt: new Date().toISOString(),
+        signature: result.signature,
+        files: result.mismatches
+      })
+    });
+
+    await chrome.storage.local.set({
+      lastTamperAlertSignature: result.signature,
+      lastTamperAlertAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('[Integrity] Failed to send tamper alert:', error);
+  }
+}
+
+async function runIntegrityCheck(trigger = 'startup') {
+  if (!ENABLE_INTEGRITY_MONITORING) return;
+
+  try {
+    const result = await inspectExtensionIntegrity();
+    if (result.mismatches.length > 0) {
+      console.error('[Integrity] Tampering detected:', result.mismatches);
+      await notifyTamperAlert(result, trigger);
+    }
+  } catch (error) {
+    console.warn('[Integrity] Check skipped:', error.message || error);
+  }
+}
 
 // SSE connection for realtime moderation events
 let sseConnection = null;
@@ -165,11 +277,19 @@ async function handleModerationEvent(data, discordId) {
 // Always sync API_BASE_URL from config into storage so popup.js can access it
 // First, try to fetch from Supabase, fallback to default
 chrome.storage.local.set({ API_BASE_URL: BG_CONFIG_API_URL });
+chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.5 });
+if (ENABLE_INTEGRITY_MONITORING) {
+  chrome.alarms.create(INTEGRITY_ALARM_NAME, { periodInMinutes: INTEGRITY_CHECK_INTERVAL_MINUTES });
+}
 // Initialize Supabase listener on startup
 initSupabaseRealtimeListener().catch(err => console.error('[Supabase] Init error:', err));
+runIntegrityCheck('startup').catch(err => console.error('[Integrity] Init error:', err));
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.5 });
+  if (ENABLE_INTEGRITY_MONITORING) {
+    chrome.alarms.create(INTEGRITY_ALARM_NAME, { periodInMinutes: INTEGRITY_CHECK_INTERVAL_MINUTES });
+  }
   // Persist API URL on install
   chrome.storage.local.set({ API_BASE_URL: BG_CONFIG_API_URL });
   chrome.storage.local.get(['channels', 'masterAutoMode', 'stats', 'globalMute'], (result) => {
@@ -181,6 +301,7 @@ chrome.runtime.onInstalled.addListener(() => {
     }
     if (!result.stats) chrome.storage.local.set({ stats: {} });
   });
+  runIntegrityCheck('install').catch(err => console.error('[Integrity] Install check failed:', err));
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -227,6 +348,10 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         }
       } catch (e) { /* server offline — skip */ }
     }
+  }
+
+  if (alarm.name === INTEGRITY_ALARM_NAME) {
+    await runIntegrityCheck('alarm');
   }
 });
 

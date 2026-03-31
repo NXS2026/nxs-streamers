@@ -30,7 +30,9 @@ const APP_CONFIG = globalThis.APP_CONFIG || {
   security: {
     // Keep internal developer surfaces disabled in release builds.
     enableDeveloperTools: false,
-    enableOfflineRecovery: false
+    enableOfflineRecovery: false,
+    enableIntegrityMonitoring: true,
+    integrityCheckIntervalMinutes: 10
   },
   access: {
     // Optional owner IDs used by the hidden offline unlock flow.

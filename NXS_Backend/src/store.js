@@ -22,7 +22,8 @@ const DEFAULT_DB = {
     latest: null,
     confirmations: []
   },
-  whitelistErrors: []
+  whitelistErrors: [],
+  securityAlerts: []
 };
 
 function clone(value) {
