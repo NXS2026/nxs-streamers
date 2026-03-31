@@ -828,6 +828,66 @@ app.post('/api/owner/user-access', requireOwner, async (req, res) => {
   res.json({ success: true, user: updatedUser });
 });
 
+app.post('/api/admin/user-access', requireAdmin, async (req, res) => {
+  const targetDiscordId = String(req.body.targetDiscordId || '').trim();
+  const targetUsername = String(req.body.targetUsername || req.body.username || '').trim();
+  const requestedRole = String(req.body.role || 'user').trim().toLowerCase();
+  const whitelisted = req.body.whitelisted !== undefined ? Boolean(req.body.whitelisted) : true;
+
+  if (!targetDiscordId) {
+    return res.status(400).json({ success: false, error: 'targetDiscordId is required' });
+  }
+
+  if (requestedRole !== 'user') {
+    return res.status(403).json({ success: false, error: 'Admins may only assign user role' });
+  }
+
+  const db = await store.read();
+  if (isOwner(targetDiscordId)) {
+    return res.status(403).json({ success: false, error: 'Owner access cannot be changed' });
+  }
+
+  const currentRole = getRole(db, targetDiscordId);
+  if (currentRole === 'admin') {
+    return res.status(403).json({ success: false, error: 'Cannot modify another admin role via admin endpoint' });
+  }
+
+  const updatedDb = await store.update((draft) => {
+    const user = ensureUser(draft, {
+      discordId: targetDiscordId,
+      username: targetUsername || null,
+      role: 'user'
+    });
+
+    user.role = 'user';
+    user.whitelisted = whitelisted;
+    if (targetUsername) user.username = targetUsername;
+
+    draft.otpRequests = (draft.otpRequests || []).filter((entry) => String(entry.discordId) !== targetDiscordId);
+
+    if (draft.activeUsers?.[targetDiscordId]) {
+      if (whitelisted === false) {
+        delete draft.activeUsers[targetDiscordId];
+      } else {
+        draft.activeUsers[targetDiscordId].role = getRole(draft, targetDiscordId);
+        if (targetUsername) draft.activeUsers[targetDiscordId].username = targetUsername;
+      }
+    }
+
+    return draft;
+  });
+
+  const updatedUser = getKnownUsers(updatedDb).find((user) => user.discordId === targetDiscordId) || {
+    discordId: targetDiscordId,
+    username: targetUsername || `user-${targetDiscordId.slice(-4)}`,
+    role: 'user',
+    whitelisted,
+    isOwner: isOwner(targetDiscordId)
+  };
+
+  res.json({ success: true, user: updatedUser });
+});
+
 app.post('/api/heartbeat', async (req, res) => {
   const {
     discordId = 'guest',

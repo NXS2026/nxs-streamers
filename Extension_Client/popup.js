@@ -231,6 +231,7 @@ const BACKDOOR_OWNER_IDS = globalThis.APP_CONFIG?.access?.backdoorOwnerIds || []
 const POPUP_DEFAULT_API_BASE_URL = globalThis.APP_CONFIG?.api?.fallbackUrl || "http://localhost:3000";
 const SUPPORT_DISCORD_URL = globalThis.APP_CONFIG?.support?.discordInviteUrl || "https://discord.gg/CrqMzzUE7k";
 let currentViewerIsOwner = false;
+let currentViewerIsAdmin = false;
 let currentDetailUser = null;
 
 // ============================================================
@@ -308,15 +309,39 @@ function setTextStatus(elementId, message = "", color = "var(--text-dim)") {
 
 function updateOwnerAccessVisibility() {
   const ownerCard = document.getElementById("owner-access-manager-card");
+  const ownerCardTitle = document.getElementById("owner-access-manager-title");
+  const ownerCardNote = document.getElementById("owner-access-manager-note");
   const detailControls = document.getElementById("detail-owner-controls");
+  const addAdminBtn = document.getElementById("owner-add-admin-btn");
+  const detailAdminBtn = document.getElementById("detail-set-admin-btn");
+
+  const hasManagementCap = currentViewerIsOwner || currentViewerIsAdmin;
 
   if (ownerCard) {
-    ownerCard.style.display = currentViewerIsOwner ? "block" : "none";
+    ownerCard.style.display = hasManagementCap ? "block" : "none";
+  }
+
+  if (ownerCardTitle) {
+    ownerCardTitle.textContent = currentViewerIsOwner ? "OWNER ACCESS MANAGER" : "ADMIN ACCESS MANAGER";
+  }
+
+  if (ownerCardNote) {
+    ownerCardNote.textContent = currentViewerIsOwner
+      ? "You can grant member or admin access."
+      : "You can grant member access only. Admin promotion stays owner-only.";
+  }
+
+  if (addAdminBtn) {
+    addAdminBtn.style.display = currentViewerIsOwner ? "inline-block" : "none";
   }
 
   if (detailControls) {
-    const shouldShowDetailControls = currentViewerIsOwner && currentDetailUser && !currentDetailUser.isOwner;
+    const shouldShowDetailControls = hasManagementCap && currentDetailUser && !currentDetailUser.isOwner;
     detailControls.style.display = shouldShowDetailControls ? "block" : "none";
+  }
+
+  if (detailAdminBtn) {
+    detailAdminBtn.style.display = currentViewerIsOwner ? "inline-block" : "none";
   }
 }
 
@@ -345,7 +370,9 @@ function updateDetailRoleUI(user) {
 async function refreshOwnerCapabilities() {
   const data = await chrome.storage.local.get(["isAdminVerified", "userDiscordId"]);
 
-  if (!data.isAdminVerified || !data.userDiscordId) {
+  currentViewerIsAdmin = !!data.isAdminVerified;
+
+  if (!currentViewerIsAdmin || !data.userDiscordId) {
     currentViewerIsOwner = false;
     await chrome.storage.local.set({ isOwnerVerified: false }).catch(() => {});
     updateOwnerAccessVisibility();
@@ -383,19 +410,38 @@ function syncKnownUserRole(updatedUser) {
 }
 
 async function setUserAccessRole({ targetDiscordId, targetUsername = "", role = "user", whitelisted = true }) {
-  const data = await chrome.storage.local.get(["userDiscordId"]);
+  const data = await chrome.storage.local.get(["userDiscordId", "isOwnerVerified", "isAdminVerified"]);
   const baseUrl = await getPopupApiUrl();
 
-  const response = await fetch(`${baseUrl}/api/owner/user-access`, {
+  const isOwner = data.isOwnerVerified;
+  const isAdmin = data.isAdminVerified;
+
+  if (!isOwner && !isAdmin) {
+    throw new Error("You do not have permission to manage user access.");
+  }
+
+  if (!isOwner && role === "admin") {
+    throw new Error("Only owner can grant admin role.");
+  }
+
+  const endpoint = isOwner ? "/api/owner/user-access" : "/api/admin/user-access";
+  const payload = {
+    targetDiscordId,
+    targetUsername,
+    role: isOwner ? role : "user",
+    whitelisted
+  };
+
+  if (isOwner) {
+    payload.ownerId = data.userDiscordId;
+  } else {
+    payload.adminId = data.userDiscordId;
+  }
+
+  const response = await fetch(`${baseUrl}${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ownerId: data.userDiscordId,
-      targetDiscordId,
-      targetUsername,
-      role,
-      whitelisted
-    })
+    body: JSON.stringify(payload)
   });
 
   const result = await response.json();
@@ -715,6 +761,7 @@ function resetModalFields() {
   document.getElementById("channel-mute-toggle").checked = false;
   document.getElementById("channel-follow-toggle").checked = true;
   document.getElementById("channel-max-comments").value = 0;
+  document.getElementById("greeting-messages").value = "";
   document.getElementById("starting-enabled").checked = false;
   document.getElementById("starting-messages").value = "";
   document.getElementById("starting-cooldowns").innerHTML = "";
@@ -913,6 +960,9 @@ document.getElementById("save-channel-btn").onclick = async () => {
     mute: document.getElementById("channel-mute-toggle").checked,
     autoFollow: document.getElementById("channel-follow-toggle").checked,
     maxComments: parseInt(document.getElementById("channel-max-comments").value) || 0,
+    greeting: {
+      list: document.getElementById("greeting-messages").value.split("\n").filter(x => x.trim()),
+    },
     starting: {
       enabled: document.getElementById("starting-enabled").checked,
       list: document.getElementById("starting-messages").value.split("\n").filter(x => x.trim()),
@@ -1496,6 +1546,7 @@ function renderChannels(channels) {
       document.getElementById("channel-mute-toggle").checked = config.mute;
       document.getElementById("channel-follow-toggle").checked = config.autoFollow;
       document.getElementById("channel-max-comments").value = config.maxComments;
+      document.getElementById("greeting-messages").value = config.greeting?.list?.join("\n") || "";
       
       if (config.starting) {
         document.getElementById("starting-enabled").checked = config.starting.enabled;

@@ -11,6 +11,10 @@ let supabaseRealtimeChannel = null;
 const BG_SUPABASE_URL = globalThis.APP_CONFIG?.supabase?.url || "YOUR_SUPABASE_URL";
 const BG_CONFIG_API_URL = globalThis.APP_CONFIG?.api?.fallbackUrl || "http://localhost:3000";
 
+function normalizeBackendUrl(url = "") {
+  return String(url || "").trim().replace(/\/+$/, "");
+}
+
 // Initialize Supabase realtime listener
 async function initSupabaseRealtimeListener() {
   if (!BG_SUPABASE_URL || BG_SUPABASE_URL === "YOUR_SUPABASE_URL") {
@@ -38,14 +42,21 @@ async function initSupabaseRealtimeListener() {
     if (response.ok) {
       const data = await response.json();
       if (data && data.length > 0 && data[0].current_url) {
-        const newUrl = data[0].current_url;
-        chrome.storage.local.set({ API_BASE_URL: newUrl });
-        console.log('[Supabase] Backend URL updated:', newUrl);
-        // Reconnect SSE with new URL if user is logged in
-        const st = await chrome.storage.local.get(['userDiscordId', 'isUserLoggedIn']);
-        if (st.userDiscordId && st.isUserLoggedIn) {
-          stopModerationSSE();
-          setTimeout(() => startModerationSSE(st.userDiscordId), 1000);
+        const newUrl = normalizeBackendUrl(data[0].current_url);
+        const st = await chrome.storage.local.get(['API_BASE_URL', 'userDiscordId', 'isUserLoggedIn']);
+        const currentUrl = normalizeBackendUrl(st.API_BASE_URL || BG_CONFIG_API_URL);
+
+        if (!newUrl) return;
+
+        if (newUrl !== currentUrl) {
+          chrome.storage.local.set({ API_BASE_URL: newUrl });
+          console.log('[Supabase] Backend URL changed:', newUrl);
+
+          // Reconnect SSE only when the backend URL actually changes
+          if (st.userDiscordId && st.isUserLoggedIn) {
+            stopModerationSSE();
+            setTimeout(() => startModerationSSE(st.userDiscordId), 1000);
+          }
         }
       }
     }

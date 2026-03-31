@@ -10,6 +10,7 @@ let startingTimer = null;
 let isStartingPhase = false;
 let sessionStartTime = null;
 let commentsSentThisSession = 0;
+let greetingSentThisSession = false;
 
 // Shuffle tracking for NORMAL MESSAGES and STARTING SOON CHAT
 let startingShuffle = [];
@@ -323,16 +324,59 @@ async function _currentPhase() {
     return uptime < 600 ? 'starting' : 'regular';
 }
 
-function startAutomation() {
+async function startAutomation() {
     if (sessionStartTime !== null) return;
     sessionStartTime = Date.now();
     console.log("Kick PRO: Starting automation session...");
     if (channelConfig.autoFollow) setTimeout(autoFollow, 5000);
+    await sendGreetingOncePerSession();
 
     if (channelConfig.starting?.enabled && channelConfig.starting.list?.length > 0) {
         _resolveStartingPhase();
     } else {
         startRegularAutomation();
+    }
+}
+
+async function waitForChatInputReady(maxAttempts = 10, intervalMs = 1000) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        if (!isRunning) return false;
+
+        const chatInput = findChatInput();
+        if (isInStream && chatInput) {
+            return true;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+
+    return false;
+}
+
+async function sendGreetingOncePerSession() {
+    const greetingList = channelConfig.greeting?.list?.filter(text => text?.trim()) || [];
+
+    if (greetingSentThisSession || greetingList.length === 0) {
+        return;
+    }
+
+    if (channelConfig.maxComments > 0 && commentsSentThisSession >= channelConfig.maxComments) {
+        console.log("Kick PRO: Max comments reached before greeting.");
+        return;
+    }
+
+    const chatReady = await waitForChatInputReady();
+    if (!chatReady) {
+        console.log("Kick PRO: Greeting skipped because chat was not ready.");
+        return;
+    }
+
+    const greetingMessage = greetingList[Math.floor(Math.random() * greetingList.length)];
+    const queued = await sendComment(greetingMessage);
+
+    if (queued) {
+        greetingSentThisSession = true;
+        console.log("Kick PRO: Greeting message sent for this session.");
     }
 }
 
@@ -632,9 +676,10 @@ async function scheduleNextSpecialCooldownMessage() {
 }
 
 async function sendComment(text) {
-    if (!isRunning || !isInStream || !text) return;
+    if (!isRunning || !isInStream || !text) return false;
     messageQueue.push(text);
     if (!isProcessingQueue) await processMessageQueue();
+    return true;
 }
 
 async function processMessageQueue() {

@@ -378,7 +378,8 @@
 
 
         <div id="owner-access-manager-card" class="card" style="margin-bottom: 15px; display: none;">
-          <div style="font-size: 10px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px; margin-bottom: 10px;">OWNER ACCESS MANAGER</div>
+          <div id="owner-access-manager-title" style="font-size: 10px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px; margin-bottom: 10px;">OWNER ACCESS MANAGER</div>
+          <div id="owner-access-manager-note" style="font-size: 10px; color: var(--text-dim); margin-bottom: 10px; line-height: 1.5;">Only the owner can grant admin access.</div>
           <div style="display: grid; gap: 10px;">
             <input type="text" id="owner-manage-discord-id" placeholder="Discord ID" style="font-size: 11px; padding: 8px;">
             <input type="text" id="owner-manage-username" placeholder="Optional username" style="font-size: 11px; padding: 8px;">
@@ -675,6 +676,14 @@
       <div class="form-group">
         <label class="form-label">MAX COMMENTS PER SESSION (0 = unlimited)</label>
         <input type="number" id="channel-max-comments" value="0" min="0">
+      </div>
+
+      <div class="section-title" style="font-size: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 5px;">GREETING (RUNS ONCE PER SESSION)</div>
+      <div class="card" style="background: rgba(0,0,0,0.2); border: none; margin-bottom: 15px;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label">GREETING MESSAGES (one per line)</label>
+          <textarea id="greeting-messages" rows="3" placeholder="Hello chat!&#10;Hi everyone!"></textarea>
+        </div>
       </div>
 
       
