@@ -2,18 +2,18 @@
   "name": "NXS Streamers",
   "version": "1.0",
   "buildType": "protected",
-  "generatedAt": "2026-03-31T14:19:21.954Z",
+  "generatedAt": "2026-03-31T14:37:07.426Z",
   "algorithm": "sha256",
   "files": {
     "manifest.json": "0d50bdd296050067a9973c9cd93ca32a5a5c297f0f410bc7887310bb34c257d2",
     "popup.html": "0507539d4cf13f3955d53ca601e3e2c74081ddc2111cf7aedc21c588f38eedd1",
-    "popup.js": "ce8b30dee997aa0af87b964155625c8d615bbc5811416620812272c7b958bae3",
-    "background.js": "76adccdfce205cb84418178fbda901cacded44b7c472156b61ad9de80029dc1f",
-    "config.js": "8f3f0c6beea9a13e06cc5dc257fc43edbe1719826b458ac7e21ab11c53f67530",
-    "features.js": "600ae8c5c93e18df0cd346b2045fc6da0d0e8a47e90c5f28cb03d6492fe3b77d",
-    "kick_automation.js": "5886d3c170dd211b8c17609080c216a8213693f7087826da04a26132cc1b6fff",
-    "stream_uptime.js": "761c09d69c9c55f79f33a55e509c8943b6a193cc6d40af64b003abde5d75d9f6",
-    "utils.js": "1d2b247dfb1415261bd347f36c3f269ab3b872a726bc6a4460a96f774052c710",
+    "popup.js": "31a290ae61d267977355e504929e6aeb1a3fc9ead95ac545dfa36e00ef64a8d6",
+    "background.js": "26ed03ebcebacc53e6b281826309cc955084e6ef325656b5ead8c8f145f98ecc",
+    "config.js": "0e9adbdcd7a9223a8dae091cd5531b467c518d820e35ad92a81f249f51533407",
+    "features.js": "4cc5eb0164b1239ac8697b87796e6582aad917de01209b0df85d467868dc6d9a",
+    "kick_automation.js": "d3794663ebcfb038462fa2da3546662ce561b2f732595b4ff5443f69e0014ecd",
+    "stream_uptime.js": "cb1c2cd80d77ba4197ec18c7d8b0e1698170dc112bd6e48392b871822dabb36f",
+    "utils.js": "18092b75db47231c384f3b90c78188760ade04d666d7341f80c8c8b58822cc02",
     "modern-theme.css": "c4ba5a8f55668c525261274fff6f960a000baef68f0e1fd97f59191476cb4cd2"
   }
 }

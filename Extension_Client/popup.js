@@ -2120,12 +2120,18 @@ document.getElementById('need-help-btn').onclick = () => {
 // --- IMPORT / EXPORT LOGIC ---
 document.getElementById("export-data-btn").onclick = async () => {
   try {
-    const data = await chrome.storage.local.get(null);
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const { channels = [] } = await chrome.storage.local.get(["channels"]);
+    const backup = {
+      app: "NXS Streamers",
+      type: "channels-backup",
+      exportedAt: new Date().toISOString(),
+      channels
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `alpha_streamers_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `nxs_streamers_channels_backup_${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (err) {
@@ -2146,15 +2152,27 @@ document.getElementById("import-file-input").onchange = (e) => {
   reader.onload = async (event) => {
     try {
       const data = JSON.parse(event.target.result);
-      if (await ASCDialog.danger("This will overwrite your current settings. Are you sure you want to import?", { confirmLabel: "IMPORT", cancelLabel: "Cancel" })) {
-        await chrome.storage.local.clear();
-        await chrome.storage.local.set(data);
-        await ASCDialog.success("Data imported successfully! Reloading...");
-        window.location.reload();
+      const importedChannels = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.channels)
+          ? data.channels
+          : null;
+
+      if (!importedChannels) {
+        throw new Error("Invalid channels backup format");
+      }
+
+      if (await ASCDialog.danger("This will replace your current channel list only. Admin, owner, member, and login data will stay unchanged. Continue?", { confirmLabel: "IMPORT", cancelLabel: "Cancel" })) {
+        await chrome.storage.local.set({ channels: importedChannels });
+        renderChannels(importedChannels);
+        chrome.runtime.sendMessage({ action: "checkNow" }).catch(() => {});
+        await ASCDialog.success("Channels imported successfully!");
       }
     } catch (err) {
       console.error("Import failed:", err);
-      await ASCDialog.alert("Invalid JSON file!");
+      await ASCDialog.alert("Invalid channels backup file!");
+    } finally {
+      e.target.value = "";
     }
   };
   reader.readAsText(file);
