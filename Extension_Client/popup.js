@@ -872,6 +872,114 @@ function resetModalFields() {
   updateNormalCooldownDisplay();
 }
 
+function extractKickSlug(raw = "") {
+  let slug = String(raw || "").trim();
+  if (!slug) return "";
+
+  try {
+    const url = new URL(slug);
+    if (url.hostname.includes("kick.com")) {
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (parts.length > 0) slug = parts[0];
+    }
+  } catch (error) {}
+
+  return slug.toLowerCase();
+}
+
+function buildDefaultChannelConfig(slug) {
+  return {
+    slug,
+    id: `ch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    autoMode: false,
+    isLive: false,
+    mute: false,
+    autoFollow: true,
+    maxComments: 0,
+    greeting: {
+      list: []
+    },
+    starting: {
+      enabled: false,
+      list: [],
+      cooldowns: [30]
+    },
+    emoji: {
+      enabled: true,
+      list: [],
+      cooldowns: [30]
+    },
+    normal: {
+      enabled: true,
+      list: [],
+      cooldownType: "normal",
+      cooldowns: [60],
+      specialCooldown: {
+        enabled: false,
+        messageCount: 100,
+        timeValue: 5,
+        timeUnit: "min"
+      }
+    }
+  };
+}
+
+async function ensureChannelAllowedForSave(slug, { notifyOnFail = true } = {}) {
+  const baseUrl = await getPopupApiUrl();
+  const checkUrl = `kick.com/${slug}`;
+  const response = await fetch(`${baseUrl}/api/check-whitelist?url=${encodeURIComponent(checkUrl)}`);
+  const result = await response.json();
+
+  if (result.allowed) {
+    return { allowed: true };
+  }
+
+  if (notifyOnFail) {
+    document.getElementById("whitelist-error-embed").style.display = "flex";
+
+    const userData = await chrome.storage.local.get(["userDiscordId"]);
+    if (userData.userDiscordId) {
+      fetch(`${baseUrl}/api/notify-whitelist-error?id=${userData.userDiscordId}&url=${encodeURIComponent(checkUrl)}`)
+        .catch(err => console.error("Failed to notify whitelist error", err));
+    }
+  }
+
+  return { allowed: false };
+}
+
+async function quickAddChannelFromSlug(rawSlug) {
+  const slug = extractKickSlug(rawSlug);
+  if (!slug) {
+    await ASCDialog.warning("Invalid Kick channel.");
+    return { added: false, reason: "invalid" };
+  }
+
+  const data = await chrome.storage.local.get(["channels"]);
+  const channels = data.channels || [];
+  const exists = channels.some((channel) => String(channel.slug || "").toLowerCase() === slug);
+
+  if (exists) {
+    await ASCDialog.info(`"${slug}" is already in your channel list.`);
+    return { added: false, reason: "duplicate" };
+  }
+
+  try {
+    const whitelist = await ensureChannelAllowedForSave(slug, { notifyOnFail: true });
+    if (!whitelist.allowed) {
+      return { added: false, reason: "whitelist" };
+    }
+  } catch (error) {
+    console.error("Quick add whitelist check failed:", error);
+  }
+
+  channels.push(buildDefaultChannelConfig(slug));
+  await chrome.storage.local.set({ channels });
+  renderChannels(channels);
+  chrome.runtime.sendMessage({ action: "checkNow" }).catch(() => {});
+  await ASCDialog.success(`"${slug}" added to your channels.`);
+  return { added: true, reason: "added", slug };
+}
+
 function updateNormalCooldownDisplay() {
   const type = document.getElementById("normal-cooldown-type").value;
   document.getElementById("normal-cooldown-section").style.display = type === "normal" ? "block" : "none";
@@ -985,16 +1093,7 @@ document.getElementById("save-channel-btn").onclick = async () => {
   let slug = slugInput.value.trim();
   if (currentEditingIndex === null && !slug) { await ASCDialog.warning("Please enter a channel name."); return; }
 
-  if (slug) {
-    try {
-      const url = new URL(slug);
-      if (url.hostname.includes("kick.com")) {
-        const parts = url.pathname.split("/").filter(p => p);
-        if (parts.length > 0) slug = parts[0];
-      }
-    } catch (e) {}
-    slug = slug.toLowerCase();
-  }
+  slug = extractKickSlug(slug);
 
   // WHITELIST CHECK BEFORE SAVING
   const saveBtn = document.getElementById("save-channel-btn");
@@ -1003,22 +1102,8 @@ document.getElementById("save-channel-btn").onclick = async () => {
   saveBtn.disabled = true;
 
   try {
-    const baseUrl = await getPopupApiUrl();
-    const checkUrl = `kick.com/${slug}`;
-    const response = await fetch(`${baseUrl}/api/check-whitelist?url=${encodeURIComponent(checkUrl)}`);
-    const result = await response.json();
-
-    if (!result.allowed) {
-      // Show styled error embed
-      document.getElementById("whitelist-error-embed").style.display = "flex";
-      
-      // Notify bot to send Discord notification
-      const userData = await chrome.storage.local.get(["userDiscordId"]);
-      if (userData.userDiscordId) {
-        fetch(`${baseUrl}/api/notify-whitelist-error?id=${userData.userDiscordId}&url=${encodeURIComponent(checkUrl)}`)
-          .catch(err => console.error("Failed to notify whitelist error", err));
-      }
-
+    const whitelist = await ensureChannelAllowedForSave(slug, { notifyOnFail: true });
+    if (!whitelist.allowed) {
       saveBtn.textContent = originalText;
       saveBtn.disabled = false;
       return;
@@ -2782,6 +2867,11 @@ async function loadOverlayDashboard(discordId) {
       return;
     }
 
+    const storageData = await chrome.storage.local.get(["channels"]);
+    const existingChannelSlugs = new Set(
+      (storageData.channels || []).map((channel) => String(channel.slug || "").toLowerCase())
+    );
+
     channelsEl.innerHTML = '';
     channels.forEach(([slug, d]) => {
       const row = document.createElement('div');
@@ -2804,6 +2894,46 @@ async function loadOverlayDashboard(discordId) {
           </div>
         </div>`;
       channelsEl.appendChild(row);
+    });
+
+    Array.from(channelsEl.querySelectorAll('.card')).forEach((row, index) => {
+      const normalizedSlug = String(channels[index]?.[0] || "").toLowerCase();
+      if (!normalizedSlug) return;
+
+      const alreadyAdded = existingChannelSlugs.has(normalizedSlug);
+      const headerEl = row.firstElementChild;
+      if (!headerEl) return;
+
+      headerEl.style.gap = '10px';
+
+      const quickAddBtn = document.createElement('button');
+      quickAddBtn.className = 'btn btn-outline quick-add-channel-btn';
+      quickAddBtn.dataset.slug = normalizedSlug;
+      quickAddBtn.textContent = alreadyAdded ? 'ADDED' : 'QUICK ADD';
+      quickAddBtn.disabled = alreadyAdded;
+      quickAddBtn.style.cssText = `padding:4px 8px;font-size:9px;min-height:auto;white-space:nowrap;border-color:${alreadyAdded ? 'rgba(255,255,255,0.08)' : 'var(--primary)'};color:${alreadyAdded ? 'var(--text-dim)' : 'var(--primary)'};`;
+
+      if (!alreadyAdded) {
+        quickAddBtn.onclick = async (event) => {
+          event.stopPropagation();
+          quickAddBtn.disabled = true;
+          quickAddBtn.textContent = 'ADDING...';
+
+          const result = await quickAddChannelFromSlug(normalizedSlug);
+          if (result.added || result.reason === 'duplicate') {
+            existingChannelSlugs.add(normalizedSlug);
+            quickAddBtn.textContent = 'ADDED';
+            quickAddBtn.style.color = 'var(--text-dim)';
+            quickAddBtn.style.borderColor = 'rgba(255,255,255,0.08)';
+            return;
+          }
+
+          quickAddBtn.disabled = false;
+          quickAddBtn.textContent = 'QUICK ADD';
+        };
+      }
+
+      headerEl.appendChild(quickAddBtn);
     });
 
   } catch(e) {
