@@ -395,6 +395,23 @@ async function getPopupApiUrl(options = {}) {
   return storageUrl || POPUP_DEFAULT_API_BASE_URL;
 }
 
+async function fetchJsonSafely(url, options = {}) {
+  const response = await fetch(url, options);
+  const contentType = response.headers.get("content-type") || "";
+  const rawText = await response.text().catch(() => "");
+  let data = null;
+
+  if (contentType.includes("application/json")) {
+    data = rawText ? JSON.parse(rawText) : null;
+  }
+
+  return { response, data, rawText, contentType };
+}
+
+function getBackendUnavailableMessage(response) {
+  return `Backend is currently unavailable (${response.status}). Try again once the server is back online.`;
+}
+
 function getRoleMeta(user = {}) {
   if (user?.isOwner) {
     return { label: "OWNER", icon: "👑", color: "#f59e0b" };
@@ -1028,8 +1045,19 @@ function buildDefaultChannelConfig(slug) {
 async function ensureChannelAllowedForSave(slug, { notifyOnFail = true } = {}) {
   const baseUrl = await getPopupApiUrl();
   const checkUrl = `kick.com/${slug}`;
-  const response = await fetch(`${baseUrl}/api/check-whitelist?url=${encodeURIComponent(checkUrl)}`);
-  const result = await response.json();
+  let result = null;
+
+  try {
+    const { response, data } = await fetchJsonSafely(`${baseUrl}/api/check-whitelist?url=${encodeURIComponent(checkUrl)}`);
+    if (!response.ok || typeof data?.allowed !== "boolean") {
+      console.warn("[Whitelist] Backend unavailable while checking URL:", response.status);
+      return { allowed: true, degraded: true };
+    }
+    result = data;
+  } catch (error) {
+    console.warn("[Whitelist] Failed to check URL, allowing save temporarily:", error);
+    return { allowed: true, degraded: true };
+  }
 
   if (result.allowed) {
     return { allowed: true };
@@ -2027,18 +2055,21 @@ async function refreshAdminData() {
 
   if (currentView === 'active') {
     try {
-      const res = await fetch(`${baseUrl}/api/admin/active-users?adminId=${adminId}`);
-      activeUsersData = await res.json();
+      const { response, data: users } = await fetchJsonSafely(`${baseUrl}/api/admin/active-users?adminId=${adminId}`);
+      if (!response.ok) {
+        throw new Error(getBackendUnavailableMessage(response));
+      }
+      activeUsersData = Array.isArray(users) ? users : [];
       displayUserList(activeUsersData);
     } catch (e) { console.error("Failed to fetch active users", e); }
   } else {
     try {
-      const [bansRes, timeoutsRes] = await Promise.all([
-        fetch(`${baseUrl}/api/admin/bans?adminId=${adminId}`),
-        fetch(`${baseUrl}/api/admin/timeouts?adminId=${adminId}`)
+      const [bansResult, timeoutsResult] = await Promise.all([
+        fetchJsonSafely(`${baseUrl}/api/admin/bans?adminId=${adminId}`),
+        fetchJsonSafely(`${baseUrl}/api/admin/timeouts?adminId=${adminId}`)
       ]);
-      const bans = await bansRes.json();
-      const timeouts = await timeoutsRes.json();
+      const bans = bansResult.response.ok && bansResult.data && typeof bansResult.data === "object" ? bansResult.data : {};
+      const timeouts = timeoutsResult.response.ok && timeoutsResult.data && typeof timeoutsResult.data === "object" ? timeoutsResult.data : {};
       // Merge bans and active timeouts together
       const now = new Date();
       const activeTimeouts = {};
@@ -2303,8 +2334,11 @@ setInterval(async () => {
       const adminId = data.userDiscordId;
       const baseUrl = data.API_BASE_URL || POPUP_DEFAULT_API_BASE_URL;
       
-      const res = await fetch(`${baseUrl}/api/admin/active-users?adminId=${adminId}`);
-      const newUsers = await res.json();
+      const { response, data: newUsersRaw } = await fetchJsonSafely(`${baseUrl}/api/admin/active-users?adminId=${adminId}`);
+      if (!response.ok) {
+        throw new Error(getBackendUnavailableMessage(response));
+      }
+      const newUsers = Array.isArray(newUsersRaw) ? newUsersRaw : [];
       
       // Create hash of user list to detect changes
       const newHash = JSON.stringify(newUsers.map((u) => `${u.discordId}|${u.ip}|${u.role}|${u.isOwner ? '1' : '0'}|${u.whitelisted === false ? '0' : '1'}`).sort());
@@ -2456,10 +2490,8 @@ async function loadUserMonitoringLegacy() {
 
   const baseUrl = await getPopupApiUrl();
   try {
-    const response = await fetch(`${baseUrl}/api/admin/users?adminId=${data.userDiscordId}`);
-    if (!response.ok) throw new Error('Failed to fetch users');
-    
-    const users = await response.json();
+    const { response, data: users } = await fetchJsonSafely(`${baseUrl}/api/admin/users?adminId=${data.userDiscordId}`);
+    if (!response.ok) throw new Error(getBackendUnavailableMessage(response));
     displayUserList(users);
   } catch (error) {
     console.error('Error loading users:', error);
@@ -2553,7 +2585,8 @@ async function loadUserMonitoring() {
 function displayUserList(users) {
   const listContainer = document.getElementById('admin-active-list');
   const search = document.getElementById('admin-user-search').value.toLowerCase().trim();
-  const filteredUsers = users.filter((user) => {
+  const normalizedUsers = Array.isArray(users) ? users : [];
+  const filteredUsers = normalizedUsers.filter((user) => {
     if (isProtectedOwnerUser(user)) return false;
     const username = String(user.username || '').toLowerCase();
     const discordId = String(user.discordId || '').toLowerCase();

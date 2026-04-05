@@ -2,18 +2,18 @@
   "name": "AK Streamers",
   "version": "1.0",
   "buildType": "protected",
-  "generatedAt": "2026-04-05T21:56:49.810Z",
+  "generatedAt": "2026-04-05T22:10:40.650Z",
   "algorithm": "sha256",
   "files": {
     "manifest.json": "b1fc5a49606b1fb9ccfc2b5bee72f6e349f976209644a3c60da2382d5ae737a0",
     "popup.html": "66edf3fb8abf0b2d3cb5700ed85257aebcc9f177456de7c398738cb307c5dff2",
-    "popup.js": "b61b20163d4eb9f7b5e28ba8cfe03724eaaab0506666a09a7cbafd1a4565b895",
-    "background.js": "b894c3de7127ab96467a25ac30c03d6751a6485e463befac6df0654031c01a6f",
-    "config.js": "3e0b495d9ee2b97e94fed058aa75d23e4fd79fd36f3c2b9d35bd8d280188bace",
-    "features.js": "0f308e1a619833b4f08def845b0d91bcdf419f652507e5ed4eb37c20f7cef8db",
-    "kick_automation.js": "2e974c43021c298ed09734a86485601d42ae748c367b9599108ef4651c5d36f2",
-    "stream_uptime.js": "e0564bd8f100f8f0e48e3e1e763ce2c80aea5e2151efd252dc214304208b38e6",
-    "utils.js": "60a0ad97417a4e82292ad40ea8c70e5abd2f6abca310bdd023e263e5b54fcdcf",
+    "popup.js": "1ff444cfa3bed01b90bbafa32648d39f79bb05e43644d19d1bd71c55b09bb4ab",
+    "background.js": "6898c95e39599da91cf47959739dc8a38a7b1e00a5268606eead239f2b8447eb",
+    "config.js": "79f4398e38c2901ee141439ad1554117da292059cf2b75459b1967c8a7a19b52",
+    "features.js": "b836ce8988b320c5b01c8b123581b9fa3a22c7a4bba49df2bc23466eb71075b0",
+    "kick_automation.js": "17509328a79aaef2b805dd9ce73a9a4aec30b2d13b8a8d88fe558bc4b1f59d45",
+    "stream_uptime.js": "7650d1075f93ed3ba38b33b8e81159b1132694e08cac13afc3fb17f1c5ada9f7",
+    "utils.js": "cf7665585fcf6a8dad76eb647ce2ceddb1cf0c3f258de4d9f8aede238e02c2dd",
     "modern-theme.css": "b9332cc5ac01df7ec43ac057d9dc1e54cc6db4132e6c53e35bb523dbc3b43eaf"
   }
 }

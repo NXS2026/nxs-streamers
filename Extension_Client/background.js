@@ -581,8 +581,15 @@ async function checkUrlWhitelist(url) {
   try {
     const baseUrl = await getBackgroundApiUrl();
     const res = await fetch(`${baseUrl}/api/check-whitelist?url=${encodeURIComponent(url)}`);
-    const data = await res.json();
+    const contentType = res.headers.get("content-type") || "";
+    const rawText = await res.text().catch(() => "");
+    const data = contentType.includes("application/json") && rawText ? JSON.parse(rawText) : null;
     
+    if (!res.ok || typeof data?.allowed !== "boolean") {
+      console.warn(`Whitelist backend unavailable for ${url}. Allowing temporarily.`);
+      return true;
+    }
+
     if (!data.allowed) {
       console.warn(`URL ${url} is not whitelisted. Access denied.`);
       // If not whitelisted, notify the user via Discord

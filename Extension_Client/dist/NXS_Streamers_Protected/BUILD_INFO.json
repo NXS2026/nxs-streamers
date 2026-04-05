@@ -1,6 +1,6 @@
 {
   "name": "NXS Streamers Protected Build",
-  "builtAt": "2026-04-05T21:56:49.810Z",
+  "builtAt": "2026-04-05T22:10:40.651Z",
   "outputDirectory": "A:\\Downloads\\NXS\\Extension_Client\\dist\\NXS_Streamers_Protected",
   "obfuscatedFiles": [
     "background.js",
