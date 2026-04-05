@@ -80,8 +80,8 @@ $format.Alignment = [System.Drawing.StringAlignment]::Center
 $format.LineAlignment = [System.Drawing.StringAlignment]::Center
 
 $shadowRect = New-Object System.Drawing.RectangleF ($textRect.X + 4), ($textRect.Y + 6), $textRect.Width, $textRect.Height
-$g.DrawString('NXS', $font, $shadowBrush, $shadowRect, $format)
-$g.DrawString('NXS', $font, $textBrush, $textRect, $format)
+$g.DrawString('AK', $font, $shadowBrush, $shadowRect, $format)
+$g.DrawString('AK', $font, $textBrush, $textRect, $format)
 
 $barBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(220, 83, 252, 24))
 $g.FillRectangle($barBrush, 152, 352, 208, 12)
