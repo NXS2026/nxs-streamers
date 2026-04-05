@@ -22,9 +22,9 @@ services:
       - key: OTP_DEBUG
         value: false
       - key: AUTO_BOOTSTRAP_FIRST_ADMIN
-        value: false
+        value: true
       - key: OWNER_IDS
-        value: 600869317348950016
+        value: ""
       - key: ADMIN_IDS
         value: ""
       - key: USER_IDS

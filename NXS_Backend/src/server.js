@@ -42,8 +42,25 @@ function parseList(raw = '') {
     .filter(Boolean);
 }
 
+function normalizeIdentity(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function normalizeKickUsername(value = '') {
+  return String(value || '').trim().replace(/^@+/, '');
+}
+
+function isValidEmail(value = '') {
+  const normalized = normalizeIdentity(value);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
+}
+
+function isEmailIdentity(value = '') {
+  return isValidEmail(value);
+}
+
 function parseIdSet(raw = '') {
-  return new Set(parseList(raw));
+  return new Set(parseList(raw).map(normalizeIdentity).filter((value) => value && isValidEmail(value)));
 }
 
 function nowIso() {
@@ -78,7 +95,9 @@ function generateOtpCode() {
 }
 
 function getGeneratedUsername(discordId, prefix = 'user') {
-  return `${prefix}-${String(discordId || '').slice(-4)}`;
+  const normalizedId = normalizeIdentity(discordId);
+  const emailLocalPart = normalizedId.split('@')[0]?.replace(/[^a-z0-9._-]/gi, '').slice(0, 24);
+  return emailLocalPart || `${prefix}-${normalizedId.slice(-4) || 'user'}`;
 }
 
 function isGeneratedUsername(username, discordId) {
@@ -340,7 +359,16 @@ function createId() {
 }
 
 function isOwner(discordId) {
-  return OWNER_IDS.has(String(discordId || ''));
+  return OWNER_IDS.has(normalizeIdentity(discordId));
+}
+
+function isStoredOwner(db, discordId) {
+  const user = getUserRecord(db, discordId);
+  return user?.owner === true;
+}
+
+function isEffectiveOwner(db, discordId) {
+  return isOwner(discordId) || isStoredOwner(db, discordId);
 }
 
 function hasAnyAdmin(db) {
@@ -348,37 +376,86 @@ function hasAnyAdmin(db) {
   return (db.users || []).some((user) => user.role === 'admin');
 }
 
+function hasAnyEmailScopedAdmin(db) {
+  if (OWNER_IDS.size > 0 || ADMIN_IDS.size > 0) return true;
+  return (db.users || []).some((user) => isEmailIdentity(user.discordId) && user.role === 'admin' && user.whitelisted !== false);
+}
+
+function hasAnyEmailScopedOwner(db) {
+  if (OWNER_IDS.size > 0) return true;
+  return (db.users || []).some((user) => isEmailIdentity(user.discordId) && user.owner === true && user.whitelisted !== false);
+}
+
+function hasAnyEmailScopedIdentity(db) {
+  if (OWNER_IDS.size > 0 || ADMIN_IDS.size > 0 || USER_IDS.size > 0) return true;
+  return (db.users || []).some((user) => isEmailIdentity(user.discordId));
+}
+
 async function bootstrapAdminIfNeeded(discordId) {
-  if (!AUTO_BOOTSTRAP_FIRST_ADMIN || !discordId) return false;
+  const normalizedId = normalizeIdentity(discordId);
+  if (!AUTO_BOOTSTRAP_FIRST_ADMIN || !normalizedId) return false;
 
   let bootstrapped = false;
   await store.update((db) => {
     if (hasAnyAdmin(db)) return db;
-    ensureUser(db, {
-      discordId,
-      username: `owner-${String(discordId).slice(-4)}`,
+    const user = ensureUser(db, {
+      discordId: normalizedId,
+      username: getGeneratedUsername(normalizedId, 'owner'),
       role: 'admin'
     });
+    if (user) user.owner = true;
     bootstrapped = true;
     return db;
   });
 
   if (bootstrapped) {
-    console.log(`[NXS] Bootstrapped first admin: ${discordId}`);
+    console.log(`[NXS] Bootstrapped first admin: ${normalizedId}`);
+  }
+
+  return bootstrapped;
+}
+
+async function bootstrapEmailAdminForMigrationIfNeeded(discordId) {
+  const normalizedId = normalizeIdentity(discordId);
+  if (!normalizedId || !isEmailIdentity(normalizedId)) return false;
+
+  let bootstrapped = false;
+  await store.update((db) => {
+    const hasEmailAdmin = hasAnyEmailScopedAdmin(db);
+    const hasEmailIdentity = hasAnyEmailScopedIdentity(db);
+    const shouldBootstrap = AUTO_BOOTSTRAP_FIRST_ADMIN
+      ? !hasEmailAdmin
+      : (!hasEmailAdmin && !hasEmailIdentity);
+
+    if (!shouldBootstrap) return db;
+
+    const user = ensureUser(db, {
+      discordId: normalizedId,
+      username: getGeneratedUsername(normalizedId, 'owner'),
+      role: 'admin'
+    });
+    if (user) user.owner = true;
+    bootstrapped = true;
+    return db;
+  });
+
+  if (bootstrapped) {
+    console.log(`[NXS] Bootstrapped email admin for migration: ${normalizedId}`);
   }
 
   return bootstrapped;
 }
 
 function seedUsersFromEnv(db) {
-  const seen = new Set(db.users.map((user) => String(user.discordId)));
+  const seen = new Set(db.users.map((user) => normalizeIdentity(user.discordId)));
 
   for (const discordId of OWNER_IDS) {
     if (!seen.has(discordId)) {
       db.users.push({
         discordId,
-        username: `owner-${discordId.slice(-4)}`,
+        username: getGeneratedUsername(discordId, 'owner'),
         role: 'admin',
+        owner: true,
         whitelisted: true,
         createdAt: nowIso()
       });
@@ -390,7 +467,7 @@ function seedUsersFromEnv(db) {
     if (!seen.has(discordId)) {
       db.users.push({
         discordId,
-        username: `admin-${discordId.slice(-4)}`,
+        username: getGeneratedUsername(discordId, 'admin'),
         role: 'admin',
         whitelisted: true,
         createdAt: nowIso()
@@ -403,7 +480,7 @@ function seedUsersFromEnv(db) {
     if (!seen.has(discordId)) {
       db.users.push({
         discordId,
-        username: `user-${discordId.slice(-4)}`,
+        username: getGeneratedUsername(discordId, 'user'),
         role: 'user',
         whitelisted: true,
         createdAt: nowIso()
@@ -414,13 +491,14 @@ function seedUsersFromEnv(db) {
 }
 
 function getUserRecord(db, discordId) {
-  return db.users.find((user) => String(user.discordId) === String(discordId || '')) || null;
+  const normalizedId = normalizeIdentity(discordId);
+  return db.users.find((user) => normalizeIdentity(user.discordId) === normalizedId) || null;
 }
 
 function getRole(db, discordId) {
-  const normalized = String(discordId || '');
+  const normalized = normalizeIdentity(discordId);
   if (!normalized) return 'guest';
-  if (isOwner(normalized) || ADMIN_IDS.has(normalized)) return 'admin';
+  if (isEffectiveOwner(db, normalized) || ADMIN_IDS.has(normalized)) return 'admin';
 
   const user = getUserRecord(db, normalized);
   if (user?.whitelisted === false) return 'guest';
@@ -436,9 +514,9 @@ function isAdmin(db, discordId) {
 }
 
 function getRoleRank(db, discordId) {
-  const normalized = String(discordId || '');
+  const normalized = normalizeIdentity(discordId);
   if (!normalized) return 0;
-  if (isOwner(normalized)) return 3;
+  if (isEffectiveOwner(db, normalized)) return 3;
 
   const role = getRole(db, normalized);
   if (role === 'admin') return 2;
@@ -460,25 +538,32 @@ function isWhitelistedUser(db, discordId) {
 }
 
 function canManageSchedule(db, discordId) {
-  return isOwner(discordId) || (OWNER_IDS.size === 0 && isAdmin(db, discordId));
+  const normalizedId = normalizeIdentity(discordId);
+  if (isEffectiveOwner(db, normalizedId)) return true;
+  return OWNER_IDS.size === 0 && !hasAnyEmailScopedOwner(db) && isAdmin(db, normalizedId);
 }
 
 function ensureUser(db, { discordId, username = null, role = null }) {
-  if (!discordId) return null;
+  const normalizedId = normalizeIdentity(discordId);
+  const normalizedUsername = normalizeKickUsername(username);
+  if (!normalizedId) return null;
 
-  let user = getUserRecord(db, discordId);
+  let user = getUserRecord(db, normalizedId);
   if (!user) {
     user = {
-      discordId: String(discordId),
-      username: username || `user-${String(discordId).slice(-4)}`,
-      role: role || getRole(db, discordId),
+      discordId: normalizedId,
+      username: normalizedUsername || getGeneratedUsername(normalizedId, 'user'),
+      role: role || getRole(db, normalizedId),
+      owner: false,
       whitelisted: true,
       createdAt: nowIso()
     };
     db.users.push(user);
   } else {
-    if (username) user.username = username;
+    user.discordId = normalizedId;
+    if (normalizedUsername) user.username = normalizedUsername;
     if (role) user.role = role;
+    if (user.owner === undefined) user.owner = false;
     if (user.whitelisted === undefined) user.whitelisted = true;
   }
 
@@ -514,32 +599,38 @@ function getKnownUsers(db) {
   const users = new Map();
 
   for (const user of db.users || []) {
-    users.set(String(user.discordId), {
-      discordId: String(user.discordId),
-      username: user.username || `user-${String(user.discordId).slice(-4)}`,
+    const normalizedId = normalizeIdentity(user.discordId);
+    if (!isEmailIdentity(normalizedId)) continue;
+    users.set(normalizedId, {
+      discordId: normalizedId,
+      username: user.username || getGeneratedUsername(normalizedId, 'user'),
       role: getRole(db, user.discordId),
       whitelisted: user.whitelisted !== false,
-      isOwner: isOwner(user.discordId)
+      isOwner: isEffectiveOwner(db, user.discordId)
     });
   }
 
   for (const user of Object.values(db.activeUsers || {})) {
-    users.set(String(user.discordId), {
-      discordId: String(user.discordId),
-      username: user.username || `user-${String(user.discordId).slice(-4)}`,
+    const normalizedId = normalizeIdentity(user.discordId);
+    if (!isEmailIdentity(normalizedId)) continue;
+    users.set(normalizedId, {
+      discordId: normalizedId,
+      username: user.username || getGeneratedUsername(normalizedId, 'user'),
       role: getRole(db, user.discordId),
       whitelisted: getRole(db, user.discordId) !== 'guest',
-      isOwner: isOwner(user.discordId)
+      isOwner: isEffectiveOwner(db, user.discordId)
     });
   }
 
   for (const dashboard of Object.values(db.dashboard || {})) {
-    users.set(String(dashboard.discordId), {
-      discordId: String(dashboard.discordId),
-      username: dashboard.username || `user-${String(dashboard.discordId).slice(-4)}`,
+    const normalizedId = normalizeIdentity(dashboard.discordId);
+    if (!isEmailIdentity(normalizedId)) continue;
+    users.set(normalizedId, {
+      discordId: normalizedId,
+      username: dashboard.username || getGeneratedUsername(normalizedId, 'user'),
       role: getRole(db, dashboard.discordId),
       whitelisted: getRole(db, dashboard.discordId) !== 'guest',
-      isOwner: isOwner(dashboard.discordId)
+      isOwner: isEffectiveOwner(db, dashboard.discordId)
     });
   }
 
@@ -549,7 +640,8 @@ function getKnownUsers(db) {
 function getAnnouncementRecipients(db, latest) {
   if (!latest) return [];
 
-  const users = getKnownUsers(db).filter((user) => user.discordId !== String(latest.sentBy || ''));
+  const sentBy = normalizeIdentity(latest.sentBy || '');
+  const users = getKnownUsers(db).filter((user) => user.discordId !== sentBy);
   if (latest.target === 'everyone') return users;
   if (latest.target === 'admins') return users.filter((user) => user.role === 'admin');
   return users.filter((user) => user.role !== 'admin');
@@ -601,10 +693,14 @@ function recalculateDashboardTotals(dashboard) {
 }
 
 function ensureDashboard(db, { discordId, username }) {
-  if (!db.dashboard[discordId]) {
-    db.dashboard[discordId] = {
-      discordId,
-      username: username || `user-${String(discordId).slice(-4)}`,
+  const normalizedId = normalizeIdentity(discordId);
+  const normalizedUsername = normalizeKickUsername(username);
+  if (!normalizedId) return null;
+
+  if (!db.dashboard[normalizedId]) {
+    db.dashboard[normalizedId] = {
+      discordId: normalizedId,
+      username: normalizedUsername || getGeneratedUsername(normalizedId, 'user'),
       totalWatchTime: 0,
       totalComments: 0,
       channels: {},
@@ -612,12 +708,12 @@ function ensureDashboard(db, { discordId, username }) {
     };
   }
 
-  if (username) db.dashboard[discordId].username = username;
-  return db.dashboard[discordId];
+  if (normalizedUsername) db.dashboard[normalizedId].username = normalizedUsername;
+  return db.dashboard[normalizedId];
 }
 
 function emitSse(discordId, payload) {
-  const bucket = sseClients.get(String(discordId || ''));
+  const bucket = sseClients.get(normalizeIdentity(discordId));
   if (!bucket || bucket.size === 0) return;
 
   const message = `data: ${JSON.stringify(payload)}\n\n`;
@@ -646,13 +742,13 @@ async function notifyAnnouncement(latest) {
 function requireAdmin(req, res, next) {
   store.read().then((db) => {
     pruneTimeouts(db);
-    const adminId = req.query.adminId || req.body.adminId;
+    const adminId = normalizeIdentity(req.query.adminId || req.body.adminId);
     if (!isAdmin(db, adminId)) {
       return res.status(403).json({ success: false, error: 'Admin only' });
     }
 
     req.currentDb = db;
-    req.adminId = String(adminId);
+    req.adminId = adminId;
     return next();
   }).catch((error) => {
     console.error('[AdminGuard] Failed:', error);
@@ -662,13 +758,13 @@ function requireAdmin(req, res, next) {
 
 function requireOwner(req, res, next) {
   store.read().then((db) => {
-    const ownerId = req.body.ownerId || req.query.ownerId;
+    const ownerId = normalizeIdentity(req.body.ownerId || req.query.ownerId);
     if (!canManageSchedule(db, ownerId)) {
       return res.status(403).json({ success: false, error: 'Owner only' });
     }
 
     req.currentDb = db;
-    req.ownerId = String(ownerId);
+    req.ownerId = ownerId;
     return next();
   }).catch((error) => {
     console.error('[OwnerGuard] Failed:', error);
@@ -695,7 +791,7 @@ app.get('/api/health', async (_req, res) => {
 });
 
 app.get('/api/check-admin', async (req, res) => {
-  const discordId = String(req.query.id || '');
+  const discordId = normalizeIdentity(req.query.id || '');
   await bootstrapAdminIfNeeded(discordId);
   const db = await store.read();
   res.json({ isAdmin: isAdmin(db, discordId) });
@@ -703,18 +799,92 @@ app.get('/api/check-admin', async (req, res) => {
 
 app.get('/api/check-owner', async (req, res) => {
   const db = await store.read();
-  const discordId = String(req.query.id || '');
+  const discordId = normalizeIdentity(req.query.id || '');
   res.json({ isOwner: canManageSchedule(db, discordId) });
 });
 
 app.get('/api/check-user-whitelist', async (req, res) => {
   const db = await store.read();
-  const discordId = String(req.query.id || '');
+  const discordId = normalizeIdentity(req.query.id || '');
   res.json({ whitelisted: isWhitelistedUser(db, discordId) });
 });
 
+app.post('/api/login', async (req, res) => {
+  const email = normalizeIdentity(req.body.email || req.body.id || '');
+  const kickUsername = normalizeKickUsername(req.body.kickUsername || req.body.username || '');
+
+  if (!email) {
+    return res.status(400).json({ success: false, error: 'Email is required' });
+  }
+
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ success: false, error: 'Please enter a valid email address' });
+  }
+
+  if (!kickUsername) {
+    return res.status(400).json({ success: false, error: 'Kick username is required' });
+  }
+
+  await bootstrapAdminIfNeeded(email);
+  await bootstrapEmailAdminForMigrationIfNeeded(email);
+
+  const db = await store.update((draft) => {
+    pruneTimeouts(draft);
+    return draft;
+  });
+
+  const ban = db.moderation.bans?.[email];
+  if (ban) {
+    return res.status(403).json({
+      success: false,
+      error: 'This email is banned from opening the app',
+      moderationType: 'ban',
+      ...ban
+    });
+  }
+
+  const timeout = db.moderation.timeouts?.[email];
+  if (timeout) {
+    return res.status(403).json({
+      success: false,
+      error: 'This email is temporarily blocked from opening the app',
+      moderationType: 'timeout',
+      ...timeout
+    });
+  }
+
+  if (!isWhitelistedUser(db, email)) {
+    return res.status(403).json({ success: false, error: 'This email is not allowed to log in' });
+  }
+
+  const role = isAdmin(db, email) ? 'admin' : 'user';
+  const updatedDb = await store.update((draft) => {
+    const user = ensureUser(draft, { discordId: email, username: kickUsername, role });
+    if (user) user.username = kickUsername;
+
+    const dashboard = ensureDashboard(draft, { discordId: email, username: kickUsername });
+    if (dashboard) dashboard.username = kickUsername;
+
+    if (draft.activeUsers?.[email]) {
+      draft.activeUsers[email].username = kickUsername;
+      draft.activeUsers[email].role = role;
+    }
+
+    return draft;
+  });
+
+  return res.json({
+    success: true,
+    email,
+    username: kickUsername,
+    kickUsername,
+    role: getRole(updatedDb, email),
+    isOwner: canManageSchedule(updatedDb, email)
+  });
+});
+
 app.get('/api/request-otp', async (req, res) => {
-  const discordId = String(req.query.id || '');
+  const discordId = normalizeIdentity(req.query.id || '');
   const db = await store.read();
 
   if (!isAdmin(db, discordId)) {
@@ -771,7 +941,7 @@ app.get('/api/request-otp', async (req, res) => {
 });
 
 app.get('/api/request-user-otp', async (req, res) => {
-  const discordId = String(req.query.id || '');
+  const discordId = normalizeIdentity(req.query.id || '');
   const db = await store.read();
 
   if (!isWhitelistedUser(db, discordId)) {
@@ -829,14 +999,14 @@ app.get('/api/request-user-otp', async (req, res) => {
 });
 
 app.get('/api/verify-otp', async (req, res) => {
-  const discordId = String(req.query.id || '');
+  const discordId = normalizeIdentity(req.query.id || '');
   const code = String(req.query.code || '');
 
   const db = await store.read();
   pruneOtpRequests(db);
 
   const request = (db.otpRequests || []).find((entry) => {
-    return String(entry.discordId) === discordId && String(entry.code) === code && !entry.used;
+    return normalizeIdentity(entry.discordId) === discordId && String(entry.code) === code && !entry.used;
   });
 
   if (!request) {
@@ -874,14 +1044,14 @@ app.get('/api/verify-otp', async (req, res) => {
 
 app.get('/api/check-ban', async (req, res) => {
   const db = await store.read();
-  const discordId = String(req.query.id || '');
+  const discordId = normalizeIdentity(req.query.id || '');
   const ban = db.moderation.bans?.[discordId];
   if (!ban) return res.json({ banned: false });
   return res.json({ banned: true, ...ban });
 });
 
 app.get('/api/check-timeout', async (req, res) => {
-  const discordId = String(req.query.id || '');
+  const discordId = normalizeIdentity(req.query.id || '');
 
   const db = await store.update((draft) => {
     pruneTimeouts(draft);
@@ -908,7 +1078,7 @@ app.get('/api/check-whitelist', async (req, res) => {
 });
 
 app.post('/api/notify-whitelist-error', async (req, res) => {
-  const userId = String(req.query.id || req.body.id || '');
+  const userId = normalizeIdentity(req.query.id || req.body.id || '');
   const url = String(req.query.url || req.body.url || '');
 
   await store.update((draft) => {
@@ -958,9 +1128,11 @@ app.post('/api/security/tamper-alert', async (req, res) => {
     return res.status(400).json({ success: false, error: 'files is required' });
   }
 
+  const normalizedUserDiscordId = normalizeIdentity(userDiscordId);
+
   const alertSignature = signature || crypto
     .createHash('sha256')
-    .update(JSON.stringify({ extensionId, version, buildType, userDiscordId, files: normalizedFiles }))
+    .update(JSON.stringify({ extensionId, version, buildType, userDiscordId: normalizedUserDiscordId, files: normalizedFiles }))
     .digest('hex');
 
   const createdAt = nowIso();
@@ -980,7 +1152,7 @@ app.post('/api/security/tamper-alert', async (req, res) => {
       extensionName,
       version,
       buildType,
-      userDiscordId: String(userDiscordId || ''),
+      userDiscordId: normalizedUserDiscordId,
       reason: String(reason || ''),
       detectedAt,
       createdAt,
@@ -1042,8 +1214,8 @@ app.post('/api/owner/update-schedule', requireOwner, async (req, res) => {
 });
 
 app.post('/api/owner/user-access', requireOwner, async (req, res) => {
-  const targetDiscordId = String(req.body.targetDiscordId || '').trim();
-  const targetUsername = String(req.body.targetUsername || req.body.username || '').trim();
+  const targetDiscordId = normalizeIdentity(req.body.targetDiscordId || '');
+  const targetUsername = normalizeKickUsername(req.body.targetUsername || req.body.username || '');
   const requestedRole = String(req.body.role || 'user').trim().toLowerCase();
   const whitelisted = req.body.whitelisted !== undefined ? Boolean(req.body.whitelisted) : true;
 
@@ -1055,7 +1227,7 @@ app.post('/api/owner/user-access', requireOwner, async (req, res) => {
     return res.status(400).json({ success: false, error: 'role must be admin or user' });
   }
 
-  if (isOwner(targetDiscordId) && (requestedRole !== 'admin' || whitelisted === false)) {
+  if (isEffectiveOwner(req.currentDb || await store.read(), targetDiscordId) && (requestedRole !== 'admin' || whitelisted === false)) {
     return res.status(400).json({ success: false, error: 'Owner access cannot be downgraded' });
   }
 
@@ -1070,7 +1242,7 @@ app.post('/api/owner/user-access', requireOwner, async (req, res) => {
     user.whitelisted = whitelisted;
     if (targetUsername) user.username = targetUsername;
 
-    draft.otpRequests = (draft.otpRequests || []).filter((entry) => String(entry.discordId) !== targetDiscordId);
+    draft.otpRequests = (draft.otpRequests || []).filter((entry) => normalizeIdentity(entry.discordId) !== targetDiscordId);
 
     if (draft.activeUsers?.[targetDiscordId]) {
       if (whitelisted === false) {
@@ -1081,23 +1253,27 @@ app.post('/api/owner/user-access', requireOwner, async (req, res) => {
       }
     }
 
+    if (draft.dashboard?.[targetDiscordId] && targetUsername) {
+      draft.dashboard[targetDiscordId].username = targetUsername;
+    }
+
     return draft;
   });
 
   const updatedUser = getKnownUsers(db).find((user) => user.discordId === targetDiscordId) || {
     discordId: targetDiscordId,
-    username: targetUsername || `user-${targetDiscordId.slice(-4)}`,
+    username: targetUsername || getGeneratedUsername(targetDiscordId, 'user'),
     role: requestedRole,
     whitelisted,
-    isOwner: isOwner(targetDiscordId)
+    isOwner: isEffectiveOwner(db, targetDiscordId)
   };
 
   res.json({ success: true, user: updatedUser });
 });
 
 app.post('/api/admin/user-access', requireAdmin, async (req, res) => {
-  const targetDiscordId = String(req.body.targetDiscordId || '').trim();
-  const targetUsername = String(req.body.targetUsername || req.body.username || '').trim();
+  const targetDiscordId = normalizeIdentity(req.body.targetDiscordId || '');
+  const targetUsername = normalizeKickUsername(req.body.targetUsername || req.body.username || '');
   const requestedRole = String(req.body.role || 'user').trim().toLowerCase();
   const whitelisted = req.body.whitelisted !== undefined ? Boolean(req.body.whitelisted) : true;
 
@@ -1110,7 +1286,7 @@ app.post('/api/admin/user-access', requireAdmin, async (req, res) => {
   }
 
   const db = await store.read();
-  if (isOwner(targetDiscordId)) {
+  if (isEffectiveOwner(db, targetDiscordId)) {
     return res.status(403).json({ success: false, error: 'Owner access cannot be changed' });
   }
 
@@ -1130,7 +1306,7 @@ app.post('/api/admin/user-access', requireAdmin, async (req, res) => {
     user.whitelisted = whitelisted;
     if (targetUsername) user.username = targetUsername;
 
-    draft.otpRequests = (draft.otpRequests || []).filter((entry) => String(entry.discordId) !== targetDiscordId);
+    draft.otpRequests = (draft.otpRequests || []).filter((entry) => normalizeIdentity(entry.discordId) !== targetDiscordId);
 
     if (draft.activeUsers?.[targetDiscordId]) {
       if (whitelisted === false) {
@@ -1141,15 +1317,19 @@ app.post('/api/admin/user-access', requireAdmin, async (req, res) => {
       }
     }
 
+    if (draft.dashboard?.[targetDiscordId] && targetUsername) {
+      draft.dashboard[targetDiscordId].username = targetUsername;
+    }
+
     return draft;
   });
 
   const updatedUser = getKnownUsers(updatedDb).find((user) => user.discordId === targetDiscordId) || {
     discordId: targetDiscordId,
-    username: targetUsername || `user-${targetDiscordId.slice(-4)}`,
+    username: targetUsername || getGeneratedUsername(targetDiscordId, 'user'),
     role: 'user',
     whitelisted,
-    isOwner: isOwner(targetDiscordId)
+    isOwner: isEffectiveOwner(updatedDb, targetDiscordId)
   };
 
   res.json({ success: true, user: updatedUser });
@@ -1157,14 +1337,17 @@ app.post('/api/admin/user-access', requireAdmin, async (req, res) => {
 
 app.post('/api/heartbeat', async (req, res) => {
   const {
-    discordId = 'guest',
-    username = 'Guest',
+    discordId: rawDiscordId = 'guest',
+    username: rawUsername = 'Guest',
     action = 'idle',
     channel = null,
     comment = null,
     duration = 0,
     status = 'Active'
   } = req.body || {};
+
+  const discordId = normalizeIdentity(rawDiscordId);
+  const username = normalizeKickUsername(rawUsername) || 'Guest';
 
   if (!discordId || discordId === 'guest') {
     return res.json({ success: true, guest: true });
@@ -1232,7 +1415,9 @@ app.post('/api/heartbeat', async (req, res) => {
 });
 
 app.post('/api/dashboard/update', async (req, res) => {
-  const { discordId, username, channel, comments = 0, watchTime = 0 } = req.body || {};
+  const discordId = normalizeIdentity(req.body.discordId || '');
+  const username = normalizeKickUsername(req.body.username || '');
+  const { channel, comments = 0, watchTime = 0 } = req.body || {};
   if (!discordId || !channel) return res.status(400).json({ success: false, error: 'discordId and channel are required' });
 
   const db = await store.update((draft) => {
@@ -1253,7 +1438,9 @@ app.post('/api/dashboard/update', async (req, res) => {
 });
 
 app.post('/api/dashboard/sync', async (req, res) => {
-  const { discordId, username, channel, watchTime = 0, comments = 0 } = req.body || {};
+  const discordId = normalizeIdentity(req.body.discordId || '');
+  const username = normalizeKickUsername(req.body.username || '');
+  const { channel, watchTime = 0, comments = 0 } = req.body || {};
   if (!discordId || !channel) return res.status(400).json({ success: false, error: 'discordId and channel are required' });
 
   const db = await store.update((draft) => {
@@ -1281,6 +1468,7 @@ app.get('/api/admin/active-users', requireAdmin, async (_req, res) => {
   });
 
   const users = Object.values(db.activeUsers || {})
+    .filter((user) => isEmailIdentity(user.discordId))
     .filter((user) => !db.moderation.bans?.[user.discordId])
     .filter((user) => !db.moderation.timeouts?.[user.discordId])
     .map((user) => ({
@@ -1288,7 +1476,7 @@ app.get('/api/admin/active-users', requireAdmin, async (_req, res) => {
       username: user.username,
       role: user.role,
       whitelisted: getRole(db, user.discordId) !== 'guest',
-      isOwner: isOwner(user.discordId),
+      isOwner: isEffectiveOwner(db, user.discordId),
       ip: user.ip,
       status: user.status,
       lastSeen: user.lastSeen,
@@ -1306,16 +1494,16 @@ app.get('/api/admin/users', requireAdmin, async (_req, res) => {
 
 app.get('/api/admin/user-logs', requireAdmin, async (req, res) => {
   const db = await store.read();
-  const requestedUserId = String(req.query.userId || req.adminId);
+  const requestedUserId = normalizeIdentity(req.query.userId || req.adminId);
   const logs = (db.logs || [])
-    .filter((entry) => String(entry.discordId) === requestedUserId)
+    .filter((entry) => normalizeIdentity(entry.discordId) === requestedUserId)
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   res.json(logs);
 });
 
 app.get('/api/admin/user-dashboard', requireAdmin, async (req, res) => {
-  const userId = String(req.query.userId || '');
+  const userId = normalizeIdentity(req.query.userId || '');
   const db = await store.read();
   const dashboard = db.dashboard?.[userId];
   res.json(buildDashboardResponse(dashboard));
@@ -1341,6 +1529,7 @@ app.get('/api/admin/kicks', requireAdmin, async (_req, res) => {
 
 app.post('/api/admin/moderate', requireAdmin, async (req, res) => {
   const { targetIp, type, reason = 'Moderated by admin', duration = 60, moderatorDiscord } = req.body || {};
+  const normalizedModerator = normalizeIdentity(moderatorDiscord || req.adminId);
   const db = await store.read();
   const target = Object.values(db.activeUsers || {}).find((user) => user.ip === targetIp);
 
@@ -1356,7 +1545,7 @@ app.post('/api/admin/moderate', requireAdmin, async (req, res) => {
     await store.update((draft) => {
       draft.moderation.kicks[target.discordId] = {
         type: 'kick',
-        moderatorDiscord: moderatorDiscord || req.adminId,
+        moderatorDiscord: normalizedModerator,
         adminId: req.adminId,
         reason,
         createdAt: nowIso()
@@ -1373,14 +1562,14 @@ app.post('/api/admin/moderate', requireAdmin, async (req, res) => {
       draft.moderation.bans[target.discordId] = {
         type: 'ban',
         reason,
-        moderatorDiscord: moderatorDiscord || req.adminId,
+        moderatorDiscord: normalizedModerator,
         adminId: req.adminId,
         createdAt: nowIso()
       };
       delete draft.activeUsers[target.discordId];
       return draft;
     });
-    emitSse(target.discordId, { type: 'ban', reason, moderatorDiscord: moderatorDiscord || req.adminId });
+    emitSse(target.discordId, { type: 'ban', reason, moderatorDiscord: normalizedModerator });
     return res.json({ success: true });
   }
 
@@ -1390,7 +1579,7 @@ app.post('/api/admin/moderate', requireAdmin, async (req, res) => {
       draft.moderation.timeouts[target.discordId] = {
         type: 'timeout',
         reason,
-        moderatorDiscord: moderatorDiscord || req.adminId,
+        moderatorDiscord: normalizedModerator,
         adminId: req.adminId,
         expires,
         createdAt: nowIso()
@@ -1398,7 +1587,7 @@ app.post('/api/admin/moderate', requireAdmin, async (req, res) => {
       delete draft.activeUsers[target.discordId];
       return draft;
     });
-    emitSse(target.discordId, { type: 'timeout', reason, moderatorDiscord: moderatorDiscord || req.adminId, expires });
+    emitSse(target.discordId, { type: 'timeout', reason, moderatorDiscord: normalizedModerator, expires });
     return res.json({ success: true });
   }
 
@@ -1406,7 +1595,9 @@ app.post('/api/admin/moderate', requireAdmin, async (req, res) => {
 });
 
 app.post('/api/admin/ban', requireAdmin, async (req, res) => {
-  const { targetDiscordId, reason = 'Banned by admin', moderatorDiscord } = req.body || {};
+  const targetDiscordId = normalizeIdentity(req.body.targetDiscordId || '');
+  const reason = String(req.body.reason || 'Banned by admin');
+  const moderatorDiscord = normalizeIdentity(req.body.moderatorDiscord || req.adminId);
   if (!targetDiscordId) return res.status(400).json({ success: false, error: 'targetDiscordId is required' });
   const db = req.currentDb || await store.read();
 
@@ -1418,7 +1609,7 @@ app.post('/api/admin/ban', requireAdmin, async (req, res) => {
     draft.moderation.bans[targetDiscordId] = {
       type: 'ban',
       reason,
-      moderatorDiscord: moderatorDiscord || req.adminId,
+      moderatorDiscord,
       adminId: req.adminId,
       createdAt: nowIso()
     };
@@ -1426,17 +1617,15 @@ app.post('/api/admin/ban', requireAdmin, async (req, res) => {
     return draft;
   });
 
-  emitSse(targetDiscordId, { type: 'ban', reason, moderatorDiscord: moderatorDiscord || req.adminId });
+  emitSse(targetDiscordId, { type: 'ban', reason, moderatorDiscord });
   res.json({ success: true });
 });
 
 app.post('/api/admin/timeout', requireAdmin, async (req, res) => {
-  const {
-    targetDiscordId,
-    durationMinutes = 60,
-    reason = 'Timed out by admin',
-    moderatorDiscord
-  } = req.body || {};
+  const targetDiscordId = normalizeIdentity(req.body.targetDiscordId || '');
+  const durationMinutes = req.body.durationMinutes ?? 60;
+  const reason = String(req.body.reason || 'Timed out by admin');
+  const moderatorDiscord = normalizeIdentity(req.body.moderatorDiscord || req.adminId);
 
   if (!targetDiscordId) return res.status(400).json({ success: false, error: 'targetDiscordId is required' });
   const db = req.currentDb || await store.read();
@@ -1451,7 +1640,7 @@ app.post('/api/admin/timeout', requireAdmin, async (req, res) => {
     draft.moderation.timeouts[targetDiscordId] = {
       type: 'timeout',
       reason,
-      moderatorDiscord: moderatorDiscord || req.adminId,
+      moderatorDiscord,
       adminId: req.adminId,
       expires,
       createdAt: nowIso()
@@ -1460,12 +1649,12 @@ app.post('/api/admin/timeout', requireAdmin, async (req, res) => {
     return draft;
   });
 
-  emitSse(targetDiscordId, { type: 'timeout', reason, moderatorDiscord: moderatorDiscord || req.adminId, expires });
+  emitSse(targetDiscordId, { type: 'timeout', reason, moderatorDiscord, expires });
   res.json({ success: true });
 });
 
 app.post('/api/admin/unban', requireAdmin, async (req, res) => {
-  const { targetDiscordId } = req.body || {};
+  const targetDiscordId = normalizeIdentity(req.body.targetDiscordId || '');
   if (!targetDiscordId) return res.status(400).json({ success: false, error: 'targetDiscordId is required' });
 
   await store.update((draft) => {
@@ -1478,7 +1667,7 @@ app.post('/api/admin/unban', requireAdmin, async (req, res) => {
 });
 
 app.post('/api/admin/remove-timeout', requireAdmin, async (req, res) => {
-  const { targetDiscordId } = req.body || {};
+  const targetDiscordId = normalizeIdentity(req.body.targetDiscordId || '');
   if (!targetDiscordId) return res.status(400).json({ success: false, error: 'targetDiscordId is required' });
 
   await store.update((draft) => {
@@ -1518,7 +1707,9 @@ app.get('/api/announcement/latest', async (_req, res) => {
 });
 
 app.post('/api/announcement/confirm', async (req, res) => {
-  const { userId, username = 'Unknown', timestamp = null } = req.body || {};
+  const userId = normalizeIdentity(req.body.userId || '');
+  const username = normalizeKickUsername(req.body.username || 'Unknown') || 'Unknown';
+  const timestamp = req.body.timestamp || null;
   if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
 
   await store.update((draft) => {
@@ -1528,7 +1719,7 @@ app.post('/api/announcement/confirm', async (req, res) => {
 
     ensureUser(draft, { discordId: userId, username, role: getRole(draft, userId) });
 
-    const exists = (draft.announcements.confirmations || []).some((entry) => entry.userId === userId);
+    const exists = (draft.announcements.confirmations || []).some((entry) => normalizeIdentity(entry.userId) === userId);
     if (!exists) {
       draft.announcements.confirmations.push({
         userId,
@@ -1551,7 +1742,7 @@ app.get('/api/announcement/confirmations', requireAdmin, async (_req, res) => {
 
   const recipients = getAnnouncementRecipients(db, latest);
   const confirmedMap = new Map(
-    (db.announcements.confirmations || []).map((entry) => [String(entry.userId), entry])
+    (db.announcements.confirmations || []).map((entry) => [normalizeIdentity(entry.userId), entry])
   );
 
   const confirmations = recipients
@@ -1572,7 +1763,10 @@ app.get('/api/announcement/confirmations', requireAdmin, async (_req, res) => {
 });
 
 app.post('/api/log-action', async (req, res) => {
-  const { userId, action = 'SYSTEM', description = '', timestamp = nowIso() } = req.body || {};
+  const userId = normalizeIdentity(req.body.userId || '');
+  const action = req.body.action || 'SYSTEM';
+  const description = req.body.description || '';
+  const timestamp = req.body.timestamp || nowIso();
   if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
 
   await store.update((draft) => {
@@ -1591,7 +1785,7 @@ app.post('/api/log-action', async (req, res) => {
 });
 
 app.get('/api/sse/moderation', async (req, res) => {
-  const discordId = String(req.query.id || '');
+  const discordId = normalizeIdentity(req.query.id || '');
   if (!discordId) return res.status(400).json({ success: false, error: 'id is required' });
 
   res.setHeader('Content-Type', 'text/event-stream');

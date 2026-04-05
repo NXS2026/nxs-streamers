@@ -22,32 +22,25 @@
         <div id="login-form">
           <div style="text-align: center; margin-bottom: 15px;">
             <p style="font-size: 11px; color: var(--primary); font-weight: 700; margin-bottom: 5px;">🔐 SECURE ACCESS</p>
-            <p style="font-size: 9px; color: var(--text-dim);">Enter Discord ID to receive OTP</p>
+            <p style="font-size: 9px; color: var(--text-dim);">Enter your email and Kick username to open the app</p>
           </div>
           
-          <!-- Step 1: Discord ID -->
+          <!-- Direct Login -->
           <div id="login-step-1">
             <div class="form-group">
-              <label class="form-label">DISCORD ID</label>
-              <div style="display: flex; gap: 10px;">
-                <input type="text" id="login-discord-id" placeholder="Enter Discord ID" style="flex: 1;">
-                <button class="btn btn-primary" id="send-otp-btn" style="padding: 0 15px; font-size: 10px;">SEND CODE</button>
-              </div>
+              <label class="form-label">EMAIL</label>
+              <input type="email" id="login-discord-id" placeholder="Enter email" style="width: 100%;">
             </div>
-          </div>
-
-          <!-- Step 2: OTP Code -->
-          <div id="login-step-2" style="display: none;">
             <div class="form-group">
-              <label class="form-label">VERIFICATION CODE</label>
-              <div style="display: flex; gap: 10px;">
-                <input type="text" id="login-otp-code" placeholder="6-digit code" style="flex: 1; letter-spacing: 5px; text-align: center; font-weight: 800;">
-                <button class="btn btn-primary" id="verify-otp-btn" style="padding: 0 15px; font-size: 10px;">VERIFY</button>
-              </div>
+              <label class="form-label">KICK USERNAME</label>
+              <input type="text" id="login-kick-username" placeholder="@kick_username" style="width: 100%;">
             </div>
+            <button class="btn btn-primary" id="send-otp-btn" style="width: 100%; font-size: 10px;">LOGIN</button>
           </div>
 
-          <p id="login-status" style="font-size: 10px; margin-top: 10px; color: var(--text-dim); text-align: center;">Enter Discord ID to receive OTP</p>
+          <div id="login-step-2" style="display: none;"></div>
+
+          <p id="login-status" style="font-size: 10px; margin-top: 10px; color: var(--text-dim); text-align: center;">Enter your email and Kick username</p>
           
           <button class="btn btn-outline" id="login-back-btn" style="width: 100%; margin-top: 10px; font-size: 11px; display: none;">BACK</button>
         </div>
@@ -62,7 +55,7 @@
       <h2 style="color: var(--primary); letter-spacing: 2px;">ACCESS RESTRICTED</h2>
       <p style="color: var(--text-dim); font-size: 13px; margin: 15px 0;">This URL is not whitelisted. You need to whitelist it first to use it.</p>
       <div class="card" style="background: rgba(83,252,24,0.05); border-color: rgba(83,252,24,0.1); margin-bottom: 20px;">
-        <p style="font-size: 11px; color: var(--text-main); font-weight: 600;">Check your Discord for details.</p>
+        <p style="font-size: 11px; color: var(--text-main); font-weight: 600;">Check with your admin for details.</p>
       </div>
       <button class="btn btn-primary" id="close-error-btn" style="width: 100%;">UNDERSTOOD</button>
     </div>
@@ -101,11 +94,11 @@
       <!-- OTP Panel — 2 steps -->
       <div id="offline-otp-panel" style="display:none; margin-bottom:8px;">
 
-        <!-- Step 1: Discord ID + Send Code (b7al tswira 3) -->
+        <!-- Step 1: Email + Send Code (b7al tswira 3) -->
         <div id="offline-step-id" style="display:block;">
-          <div style="font-size:9px; color:#ff9800; font-weight:800; letter-spacing:1px; margin-bottom:8px;">🪪 ENTER YOUR DISCORD ID</div>
+          <div style="font-size:9px; color:#ff9800; font-weight:800; letter-spacing:1px; margin-bottom:8px;">🪪 ENTER YOUR EMAIL</div>
           <div style="display:flex; gap:6px;">
-            <input type="text" id="offline-uid-input" placeholder="Your Discord ID" maxlength="20"
+            <input type="text" id="offline-uid-input" placeholder="your@email.com" maxlength="80"
               style="flex:1; font-size:12px; padding:7px 10px; background:rgba(255,255,255,0.05);
               border:1px solid rgba(255,152,0,0.3); border-radius:6px; color:var(--text-main); outline:none;">
             <button id="offline-uid-send"
@@ -119,7 +112,7 @@
 
         <!-- Step 2: Code + Verify (b7al tswira 2) -->
         <div id="offline-step-code" style="display:none;">
-          <div style="font-size:9px; color:#ff9800; font-weight:800; letter-spacing:1px; margin-bottom:8px;">🔑 ENTER CODE FROM DISCORD DM</div>
+          <div style="font-size:9px; color:#ff9800; font-weight:800; letter-spacing:1px; margin-bottom:8px;">🔑 ENTER CODE</div>
           <div style="display:flex; gap:6px;">
             <input type="text" id="offline-otp-input" placeholder="6-digit code" maxlength="6"
               style="flex:1; font-size:15px; padding:7px 10px; background:rgba(255,255,255,0.05);
@@ -383,8 +376,8 @@
           <div id="owner-access-manager-title" style="font-size: 10px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px; margin-bottom: 10px;">OWNER ACCESS MANAGER</div>
           <div id="owner-access-manager-note" style="font-size: 10px; color: var(--text-dim); margin-bottom: 10px; line-height: 1.5;">Only the owner can grant admin access.</div>
           <div style="display: grid; gap: 10px;">
-            <input type="text" id="owner-manage-discord-id" placeholder="Discord ID" style="font-size: 11px; padding: 8px;">
-            <input type="text" id="owner-manage-username" placeholder="Optional username" style="font-size: 11px; padding: 8px;">
+            <input type="email" id="owner-manage-discord-id" placeholder="Email" style="font-size: 11px; padding: 8px;">
+            <input type="text" id="owner-manage-username" placeholder="Kick username (optional)" style="font-size: 11px; padding: 8px;">
             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
               <button class="btn btn-outline" id="owner-add-member-btn" style="font-size: 10px;">ADD MEMBER</button>
               <button class="btn btn-primary" id="owner-add-admin-btn" style="font-size: 10px;">MAKE ADMIN</button>
@@ -403,7 +396,7 @@
         <!-- Active Users List -->
         <div id="admin-active-users-container">
           <div class="card" style="margin-bottom: 10px; padding: 10px;">
-            <input type="text" id="admin-user-search" placeholder="Search by username..." style="font-size: 11px; padding: 8px;">
+            <input type="text" id="admin-user-search" placeholder="Search by kick username or email..." style="font-size: 11px; padding: 8px;">
           </div>
           <div id="admin-active-list" style="display: grid; gap: 8px;">
           </div>
@@ -432,7 +425,7 @@
             <div style="display: grid; gap: 15px;">
               <!-- User Info -->
               <div class="card" style="background: rgba(83,252,24,0.05); border-color: rgba(83,252,24,0.1); padding: 12px;">
-                <div style="font-size: 10px; color: var(--text-dim); margin-bottom: 5px; font-weight: 700;">DISCORD ID</div>
+                <div style="font-size: 10px; color: var(--text-dim); margin-bottom: 5px; font-weight: 700;">EMAIL</div>
                 <div id="detail-discord-id" style="font-size: 12px; color: var(--text-main); font-weight: 600;">N/A</div>
               </div>
 

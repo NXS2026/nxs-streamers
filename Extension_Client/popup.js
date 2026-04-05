@@ -234,6 +234,18 @@ let currentViewerIsOwner = false;
 let currentViewerIsAdmin = false;
 let currentDetailUser = null;
 
+function normalizeEmailInput(value = "") {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeKickUsernameInput(value = "") {
+  return String(value || "").trim().replace(/^@+/, "");
+}
+
+function isValidEmailInput(value = "") {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmailInput(value));
+}
+
 // ============================================================
 // USER-SPECIFIC CHANNEL STORAGE HELPERS
 async function saveChannelsForUser(userDiscordId, channels = []) {
@@ -286,16 +298,23 @@ function resetPopupToLoggedOutState() {
   const loginStep2 = document.getElementById("login-step-2");
   const loginBackBtn = document.getElementById("login-back-btn");
   const loginDiscordId = document.getElementById("login-discord-id");
-  const loginOtpCode = document.getElementById("login-otp-code");
+  const loginKickUsername = document.getElementById("login-kick-username");
+  const loginBtn = document.getElementById("send-otp-btn");
   const loginStatus = document.getElementById("login-status");
 
-  loginStep1.style.display = "block";
-  loginStep2.style.display = "none";
-  loginBackBtn.style.display = "none";
-  loginDiscordId.value = "";
-  loginOtpCode.value = "";
-  loginStatus.textContent = "Enter Discord ID to receive OTP";
-  loginStatus.style.color = "var(--text-dim)";
+  if (loginStep1) loginStep1.style.display = "block";
+  if (loginStep2) loginStep2.style.display = "none";
+  if (loginBackBtn) loginBackBtn.style.display = "none";
+  if (loginDiscordId) loginDiscordId.value = "";
+  if (loginKickUsername) loginKickUsername.value = "";
+  if (loginBtn) {
+    loginBtn.disabled = false;
+    loginBtn.textContent = "LOGIN";
+  }
+  if (loginStatus) {
+    loginStatus.textContent = "Enter your email and Kick username";
+    loginStatus.style.color = "var(--text-dim)";
+  }
 
   document.querySelectorAll(".tab-btn").forEach((btn) => btn.classList.remove("active"));
   document.querySelectorAll(".tab-content").forEach((content) => content.classList.remove("active"));
@@ -797,7 +816,7 @@ function showBanScreen(moderationType, reason, moderatorDiscord, expires) {
 }
 
 async function checkBanOnLoad() {
-  const data = await chrome.storage.local.get(["isBanned", "banData", "isKicked", "isOffline"]);
+  const data = await chrome.storage.local.get(["isBanned", "banData", "isKicked", "isOffline", "userDiscordId"]);
 
   if (data.isOffline) {
     document.getElementById("main-panel").style.display = "none";
@@ -1243,10 +1262,10 @@ async function initLoginScreen() {
   const loginStatus = document.getElementById("login-status");
   const adminTabBtn = document.getElementById("admin-tab-btn");
   const backBtn = document.getElementById("login-back-btn");
-
   const idInput = document.getElementById("login-discord-id");
+  const kickInput = document.getElementById("login-kick-username");
+  const loginBtn = document.getElementById("send-otp-btn");
   const otpInput = document.getElementById("login-otp-code");
-  const sendOtpBtn = document.getElementById("send-otp-btn");
   const verifyOtpBtn = document.getElementById("verify-otp-btn");
   const step1 = document.getElementById("login-step-1");
   const step2 = document.getElementById("login-step-2");
@@ -1264,6 +1283,104 @@ async function initLoginScreen() {
     
     await loadInitialData();
     await updateUserStatusDisplay();
+    return;
+  }
+
+  if (loginBtn) {
+    loginBtn.onclick = async () => {
+      const email = normalizeEmailInput(idInput?.value);
+      const kickUsername = normalizeKickUsernameInput(kickInput?.value);
+
+      if (!email) {
+        await ASCDialog.warning("Please enter your email.");
+        return;
+      }
+
+      if (!isValidEmailInput(email)) {
+        await ASCDialog.warning("Please enter a valid email address.");
+        return;
+      }
+
+      if (!kickUsername) {
+        await ASCDialog.warning("Please enter your Kick username.");
+        return;
+      }
+
+      loginStatus.textContent = "Checking access...";
+      loginStatus.style.color = "var(--text-dim)";
+      loginBtn.disabled = true;
+
+      try {
+        const baseUrl = await getPopupApiUrl();
+        const response = await fetch(`${baseUrl}/api/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, kickUsername })
+        });
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          if (response.status === 403 && (result.moderationType === "ban" || result.moderationType === "timeout")) {
+            const moderationType = result.moderationType;
+            await chrome.storage.local.set({
+              userDiscordId: email,
+              userDiscordUsername: result.kickUsername || result.username || kickUsername,
+              isBanned: true,
+              banData: { ...result, moderationType },
+              isUserLoggedIn: false
+            });
+            showBanScreen(moderationType, result.reason, result.moderatorDiscord, result.expires);
+            return;
+          }
+
+          loginStatus.textContent = "âŒ " + (result.error || "Login failed");
+          loginStatus.style.color = "var(--danger)";
+          loginBtn.disabled = false;
+          return;
+        }
+
+        const isAdmin = result.role === "admin";
+        const restoredChannels = await loadChannelsForUser(email);
+
+        await chrome.storage.local.set({
+          userDiscordId: email,
+          userDiscordUsername: result.kickUsername || result.username || kickUsername,
+          isAdminVerified: isAdmin,
+          isUserVerified: true,
+          isUserLoggedIn: true,
+          isOwnerVerified: !!result.isOwner,
+          isBanned: false,
+          banData: null,
+          channels: restoredChannels
+        });
+        chrome.runtime.sendMessage({ action: 'startSSE', discordId: email });
+
+        loginStatus.textContent = "âœ… Login successful! Unlocking...";
+        loginStatus.style.color = "var(--primary)";
+        adminTabBtn.style.display = isAdmin ? "block" : "none";
+
+        setTimeout(() => {
+          loginScreen.style.display = "none";
+          mainPanel.style.display = "flex";
+          loadInitialData();
+          updateUserStatusDisplay();
+        }, 700);
+      } catch (error) {
+        loginStatus.textContent = "âŒ Connection error";
+        loginStatus.style.color = "var(--danger)";
+        loginBtn.disabled = false;
+      }
+    };
+
+    [idInput, kickInput].forEach((element) => {
+      if (!element) return;
+      element.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !loginBtn.disabled) {
+          loginBtn.click();
+        }
+      });
+    });
+
     return;
   }
 
@@ -1914,11 +2031,16 @@ function renderBannedUsers(bans) {
 }
 
 async function submitOwnerAccess(role, whitelisted = true) {
-  const targetDiscordId = document.getElementById('owner-manage-discord-id')?.value.trim();
-  const targetUsername = document.getElementById('owner-manage-username')?.value.trim() || '';
+  const targetDiscordId = normalizeEmailInput(document.getElementById('owner-manage-discord-id')?.value);
+  const targetUsername = normalizeKickUsernameInput(document.getElementById('owner-manage-username')?.value) || '';
 
   if (!targetDiscordId) {
-    setTextStatus('owner-manage-status', 'Enter a Discord ID first.', 'var(--danger)');
+    setTextStatus('owner-manage-status', 'Enter an email first.', 'var(--danger)');
+    return;
+  }
+
+  if (!isValidEmailInput(targetDiscordId)) {
+    setTextStatus('owner-manage-status', 'Enter a valid email address.', 'var(--danger)');
     return;
   }
 
@@ -1986,9 +2108,14 @@ function initOwnerAccessManager() {
   if (addAdminBtn) addAdminBtn.onclick = () => submitOwnerAccess('admin');
   if (removeAccessBtn) {
     removeAccessBtn.onclick = async () => {
-      const targetDiscordId = document.getElementById('owner-manage-discord-id')?.value.trim();
+      const targetDiscordId = normalizeEmailInput(document.getElementById('owner-manage-discord-id')?.value);
       if (!targetDiscordId) {
-        setTextStatus('owner-manage-status', 'Enter a Discord ID first.', 'var(--danger)');
+        setTextStatus('owner-manage-status', 'Enter an email first.', 'var(--danger)');
+        return;
+      }
+
+      if (!isValidEmailInput(targetDiscordId)) {
+        setTextStatus('owner-manage-status', 'Enter a valid email address.', 'var(--danger)');
         return;
       }
 
@@ -2405,7 +2532,7 @@ function displayUserList(users) {
     userCard.innerHTML = `
       <div style="display:grid; gap:4px;">
         <span class="username" style="font-weight: 800; font-size: 13px; color: var(--text-main);">${user.username}</span>
-        <div style="font-size: 9px; color: var(--text-dim); font-weight: 600;">${user.discordId || 'No Discord ID'}</div>
+        <div style="font-size: 9px; color: var(--text-dim); font-weight: 600;">${user.discordId || 'No email'}</div>
       </div>
       <div style="font-size: 10px; color: ${roleMeta.color}; font-weight: 700; transition: all 0.3s ease;">${roleMeta.icon} ${roleMeta.label}</div>
     `;
@@ -3575,7 +3702,7 @@ chrome.storage.local.get(['pendingAnnouncement', 'isAdminVerified'], data => {
     uidSend.onclick = async () => {
       const uid = uidInput.value.trim();
       if (!uid) {
-        uidStatus.textContent = '⚠️ Enter your Discord ID';
+        uidStatus.textContent = '⚠️ Enter your email';
         uidStatus.style.color = '#ff9800';
         return;
       }
@@ -3592,7 +3719,7 @@ chrome.storage.local.get(['pendingAnnouncement', 'isAdminVerified'], data => {
   async function sendOtpRequest(uid) {
     uidSend.textContent = '...';
     uidSend.disabled = true;
-    uidStatus.textContent = '📨 Sending code to your Discord DM...';
+    uidStatus.textContent = '📨 Sending code...';
     uidStatus.style.color = 'var(--text-dim)';
 
     try {
@@ -3612,7 +3739,7 @@ chrome.storage.local.get(['pendingAnnouncement', 'isAdminVerified'], data => {
 
       if (!res.ok) throw new Error();
 
-      uidStatus.textContent = '✅ Code sent — check your Discord DM';
+      uidStatus.textContent = '✅ Code sent';
       uidStatus.style.color = '#53fc18';
 
       // Khbbi step-id o ban step-code b3d 800ms
@@ -3643,7 +3770,7 @@ chrome.storage.local.get(['pendingAnnouncement', 'isAdminVerified'], data => {
 
       const uid = uidInput.value.trim();
       if (!uid) {
-        otpStatus.textContent = '❌ Discord ID missing';
+        otpStatus.textContent = '❌ Email missing';
         otpStatus.style.color = '#ff6060';
         return;
       }
