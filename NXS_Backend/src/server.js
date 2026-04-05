@@ -1964,7 +1964,7 @@ async function bootstrap() {
     return db;
   });
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`[NXS] Backend running on http://localhost:${PORT}`);
     console.log(`[NXS] Data file: ${dbFile}`);
     console.log(`[NXS] Owners configured: ${OWNER_IDS.size}`);
@@ -1975,6 +1975,11 @@ async function bootstrap() {
     console.log(`[NXS] Discord bot configured: ${Boolean(DISCORD_BOT_TOKEN)}`);
     console.log(`[NXS] Discord webhook configured: ${Boolean(DISCORD_OTP_WEBHOOK_URL)}`);
   });
+
+  // Keep these timeouts above common proxy thresholds to reduce sporadic 502s.
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 66000;
+  server.requestTimeout = 0;
 }
 
 bootstrap().catch((error) => {

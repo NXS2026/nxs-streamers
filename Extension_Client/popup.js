@@ -368,12 +368,31 @@ if (document.getElementById("settings-logout-btn")) {
 }
 
 // GET API BASE URL — reads from chrome.storage (set by background/config)
-async function getPopupApiUrl() {
-  return new Promise(resolve => {
+async function getPopupApiUrl(options = {}) {
+  const { forceRefresh = false } = options;
+  const storageUrl = await new Promise(resolve => {
     chrome.storage.local.get(["API_BASE_URL"], r => {
-      resolve(r.API_BASE_URL || POPUP_DEFAULT_API_BASE_URL);
+      resolve(r.API_BASE_URL || "");
     });
   });
+
+  if (!forceRefresh && storageUrl) {
+    return storageUrl;
+  }
+
+  if (typeof getConfigApiUrl === "function") {
+    try {
+      const resolvedUrl = await getConfigApiUrl();
+      if (resolvedUrl) {
+        await chrome.storage.local.set({ API_BASE_URL: resolvedUrl });
+        return resolvedUrl;
+      }
+    } catch (error) {
+      console.warn("[API] Failed to refresh popup API URL from config:", error);
+    }
+  }
+
+  return storageUrl || POPUP_DEFAULT_API_BASE_URL;
 }
 
 function getRoleMeta(user = {}) {
@@ -554,7 +573,6 @@ function syncKnownUserRole(updatedUser) {
 
 async function setUserAccessRole({ targetDiscordId, targetUsername = "", role = "user", whitelisted = true }) {
   const data = await chrome.storage.local.get(["userDiscordId", "isOwnerVerified", "isAdminVerified"]);
-  const baseUrl = await getPopupApiUrl();
 
   const isOwner = data.isOwnerVerified;
   const isAdmin = data.isAdminVerified;
@@ -581,15 +599,44 @@ async function setUserAccessRole({ targetDiscordId, targetUsername = "", role = 
     payload.adminId = data.userDiscordId;
   }
 
-  const response = await fetch(`${baseUrl}${endpoint}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+  const sendAccessRequest = async (baseUrl) => {
+    const response = await fetch(`${baseUrl}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
 
-  const result = await response.json();
-  if (!response.ok || !result.success) {
-    throw new Error(result.error || "Failed to update user access");
+    const contentType = response.headers.get("content-type") || "";
+    let result = null;
+
+    if (contentType.includes("application/json")) {
+      result = await response.json().catch(() => null);
+    } else {
+      await response.text().catch(() => "");
+    }
+
+    return { response, result, contentType };
+  };
+
+  let baseUrl = await getPopupApiUrl();
+  let { response, result, contentType } = await sendAccessRequest(baseUrl);
+
+  const shouldRetryWithFreshUrl = (!response.ok || !result?.success)
+    && (response.status >= 500 || !contentType.includes("application/json"));
+
+  if (shouldRetryWithFreshUrl) {
+    const refreshedBaseUrl = await getPopupApiUrl({ forceRefresh: true });
+    if (refreshedBaseUrl) {
+      baseUrl = refreshedBaseUrl;
+      ({ response, result, contentType } = await sendAccessRequest(baseUrl));
+    }
+  }
+
+  if (!response.ok || !result?.success) {
+    const fallbackMessage = response.status >= 500
+      ? `Backend is currently unavailable (${response.status}). Try again once the server is back online.`
+      : "Failed to update user access";
+    throw new Error(result?.error || fallbackMessage);
   }
 
   return result.user;
@@ -636,19 +683,27 @@ initOptimizationSettings();
 startOfflineCheck();
 
 async function startOfflineCheck() {
+  const suppressOfflineOverlay = async () => {
+    const offlineOverlay = document.getElementById("offline-overlay");
+    if (offlineOverlay) {
+      offlineOverlay.style.display = "none";
+    }
+    await chrome.storage.local.set({ isOffline: false });
+  };
+
   const check = async () => {
     try {
       const baseUrl = await getPopupApiUrl();
       const response = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(5000) });
       if (!response.ok) throw new Error("Offline");
       
-      // If was offline, reload to restore
+      // Clear any stale offline flag without interrupting the popup
       const storage = await chrome.storage.local.get(["isOffline", "isAdminVerified", "userDiscordId", "isUserLoggedIn", "isBanned", "banData", "isKicked", "kickData"]);
       if (storage.isOffline) {
-        await chrome.storage.local.set({ isOffline: false });
-        location.reload();
-        return;
+        await suppressOfflineOverlay();
       }
+
+      await suppressOfflineOverlay();
 
       // CHECK MODERATION STATUS — ban/timeout block popup, kick = background handled (auto-logout)
       // Always verify ban/timeout status with server — never trust storage alone
@@ -737,13 +792,8 @@ async function startOfflineCheck() {
         }
       }
     } catch (error) {
-      console.log("Bot is offline, showing overlay...");
-      await chrome.storage.local.set({ isOffline: true });
-      document.getElementById("main-panel").style.display = "none";
-      document.getElementById("login-screen").style.display = "none";
-      document.getElementById("ban-embed").style.display = "none";
-      document.getElementById("offline-overlay").style.display = "flex";
-      document.getElementById("schedule-lock-overlay").style.display = "none";
+      console.log("Bot is offline, suppressing overlay.");
+      await suppressOfflineOverlay();
     }
   };
 
@@ -823,11 +873,8 @@ async function checkBanOnLoad() {
   const data = await chrome.storage.local.get(["isBanned", "banData", "isKicked", "isOffline", "userDiscordId"]);
 
   if (data.isOffline) {
-    document.getElementById("main-panel").style.display = "none";
-    document.getElementById("login-screen").style.display = "none";
-    document.getElementById("ban-embed").style.display = "none";
-    document.getElementById("offline-overlay").style.display = "flex";
-    return;
+    await chrome.storage.local.set({ isOffline: false });
+    document.getElementById("offline-overlay").style.display = "none";
   }
 
   // BAN or TIMEOUT — always verify with server before showing block screen

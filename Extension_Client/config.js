@@ -25,7 +25,7 @@ const APP_CONFIG = globalThis.APP_CONFIG || {
   },
   api: {
     // Replace with your own backend base URL.
-    fallbackUrl: "http://localhost:3000"
+    fallbackUrl: "https://nxs-streamers-backend.onrender.com"
   },
   security: {
     // Keep internal developer surfaces disabled in release builds.
