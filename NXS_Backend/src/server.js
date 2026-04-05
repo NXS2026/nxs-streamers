@@ -59,6 +59,11 @@ function isEmailIdentity(value = '') {
   return isValidEmail(value);
 }
 
+function isReservedTestEmail(value = '') {
+  const normalized = normalizeIdentity(value);
+  return normalized.endsWith('@example.com') || normalized.endsWith('@example.org') || normalized.endsWith('@example.net');
+}
+
 function parseIdSet(raw = '') {
   return new Set(parseList(raw).map(normalizeIdentity).filter((value) => value && isValidEmail(value)));
 }
@@ -595,6 +600,36 @@ function pruneActiveUsers(db) {
   }
 }
 
+function pruneReservedTestIdentities(db) {
+  db.users = (db.users || []).filter((user) => !isReservedTestEmail(user.discordId));
+  db.otpRequests = (db.otpRequests || []).filter((entry) => !isReservedTestEmail(entry.discordId));
+  db.logs = (db.logs || []).filter((entry) => !isReservedTestEmail(entry.discordId));
+  db.actionLogs = (db.actionLogs || []).filter((entry) => !isReservedTestEmail(entry.userId));
+  db.announcements.confirmations = (db.announcements?.confirmations || []).filter((entry) => !isReservedTestEmail(entry.userId));
+  db.whitelistErrors = (db.whitelistErrors || []).filter((entry) => !isReservedTestEmail(entry.userId));
+  db.securityAlerts = (db.securityAlerts || []).filter((entry) => !isReservedTestEmail(entry.userDiscordId));
+
+  for (const key of Object.keys(db.activeUsers || {})) {
+    if (isReservedTestEmail(key)) delete db.activeUsers[key];
+  }
+
+  for (const key of Object.keys(db.dashboard || {})) {
+    if (isReservedTestEmail(key)) delete db.dashboard[key];
+  }
+
+  for (const key of Object.keys(db.moderation?.bans || {})) {
+    if (isReservedTestEmail(key)) delete db.moderation.bans[key];
+  }
+
+  for (const key of Object.keys(db.moderation?.timeouts || {})) {
+    if (isReservedTestEmail(key)) delete db.moderation.timeouts[key];
+  }
+
+  for (const key of Object.keys(db.moderation?.kicks || {})) {
+    if (isReservedTestEmail(key)) delete db.moderation.kicks[key];
+  }
+}
+
 function getKnownUsers(db) {
   const users = new Map();
 
@@ -819,6 +854,10 @@ app.post('/api/login', async (req, res) => {
 
   if (!isValidEmail(email)) {
     return res.status(400).json({ success: false, error: 'Please enter a valid email address' });
+  }
+
+  if (isReservedTestEmail(email)) {
+    return res.status(400).json({ success: false, error: 'Reserved test emails are not allowed' });
   }
 
   if (!kickUsername) {
@@ -1815,6 +1854,7 @@ app.use((_req, res) => {
 
 async function bootstrap() {
   await store.update((db) => {
+    pruneReservedTestIdentities(db);
     seedUsersFromEnv(db);
     pruneOtpRequests(db);
     pruneTimeouts(db);
