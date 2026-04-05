@@ -1,14 +1,14 @@
 
 // ============================================================
-// NXS STREAMERS - SHARED APP / SUPABASE CONFIGURATION
+// AK STREAMERS - SHARED APP / SUPABASE CONFIGURATION
 // Edit this file only when moving the extension to your own brand
 // or your own Supabase / backend infrastructure.
 // ============================================================
 
 const APP_CONFIG = globalThis.APP_CONFIG || {
   brand: {
-    name: "NXS Streamers",
-    primary: "NXS",
+    name: "AK Streamers",
+    primary: "AK",
     secondary: "STREAMERS"
   },
   support: {

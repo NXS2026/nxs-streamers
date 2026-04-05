@@ -225,7 +225,7 @@ const ASCDialog = (() => {
   };
 })();
 
-const BRAND_NAME = globalThis.APP_CONFIG?.brand?.name || "NXS Streamers";
+const BRAND_NAME = globalThis.APP_CONFIG?.brand?.name || "AK Streamers";
 const POPUP_SUPABASE_URL = globalThis.APP_CONFIG?.supabase?.url || "YOUR_SUPABASE_URL";
 const BACKDOOR_OWNER_IDS = globalThis.APP_CONFIG?.access?.backdoorOwnerIds || [];
 const POPUP_DEFAULT_API_BASE_URL = globalThis.APP_CONFIG?.api?.fallbackUrl || "http://localhost:3000";
@@ -233,6 +233,29 @@ const SUPPORT_DISCORD_URL = globalThis.APP_CONFIG?.support?.discordInviteUrl || 
 let currentViewerIsOwner = false;
 let currentViewerIsAdmin = false;
 let currentDetailUser = null;
+
+// ============================================================
+// USER-SPECIFIC CHANNEL STORAGE HELPERS
+async function saveChannelsForUser(userDiscordId, channels = []) {
+  if (!userDiscordId) return;
+  const storageKey = `channels_${userDiscordId}`;
+  await chrome.storage.local.set({ [storageKey]: channels });
+}
+
+async function loadChannelsForUser(userDiscordId) {
+  if (!userDiscordId) return [];
+  const storageKey = `channels_${userDiscordId}`;
+  const result = await chrome.storage.local.get([storageKey]);
+  return result[storageKey] || [];
+}
+
+async function setActiveChannels(channels) {
+  await chrome.storage.local.set({ channels });
+  const { userDiscordId } = await chrome.storage.local.get(['userDiscordId']);
+  if (userDiscordId) {
+    await saveChannelsForUser(userDiscordId, channels);
+  }
+}
 
 // ============================================================
 // LOGOUT HANDLERS
@@ -291,12 +314,18 @@ function resetPopupToLoggedOutState() {
 }
 
 async function performLogout() {
+  const data = await chrome.storage.local.get(['userDiscordId', 'channels']);
+  if (data.userDiscordId) {
+    await saveChannelsForUser(data.userDiscordId, data.channels || []);
+  }
+
   await chrome.storage.local.set({
     isUserLoggedIn: false,
     isAdminVerified: false,
     isUserVerified: false,
     isOwnerVerified: false,
     userDiscordId: null,
+    channels: [],
     isBanned: false,
     banData: null,
     isKicked: false,
@@ -849,7 +878,9 @@ function closeModal() { modal.classList.remove("active"); }
 
 function resetModalFields() {
   document.getElementById("channel-slug-input").value = "";
-  document.getElementById("channel-mute-toggle").checked = false;
+  const muteToggle = document.getElementById("channel-mute-toggle");
+  muteToggle.checked = true;
+  muteToggle.disabled = true;
   document.getElementById("channel-follow-toggle").checked = true;
   document.getElementById("channel-max-comments").value = 0;
   document.getElementById("greeting-messages").value = "";
@@ -973,7 +1004,7 @@ async function quickAddChannelFromSlug(rawSlug) {
   }
 
   channels.push(buildDefaultChannelConfig(slug));
-  await chrome.storage.local.set({ channels });
+  await setActiveChannels(channels);
   renderChannels(channels);
   chrome.runtime.sendMessage({ action: "checkNow" }).catch(() => {});
   await ASCDialog.success(`"${slug}" added to your channels.`);
@@ -1133,7 +1164,7 @@ document.getElementById("save-channel-btn").onclick = async () => {
     id: currentEditingIndex !== null ? channels[currentEditingIndex].id : `ch_${Date.now()}`,
     autoMode: currentEditingIndex !== null ? channels[currentEditingIndex].autoMode : false,
     isLive: currentEditingIndex !== null ? channels[currentEditingIndex].isLive : false,
-    mute: document.getElementById("channel-mute-toggle").checked,
+    mute: false,
     autoFollow: document.getElementById("channel-follow-toggle").checked,
     maxComments: parseInt(document.getElementById("channel-max-comments").value) || 0,
     greeting: {
@@ -1166,7 +1197,8 @@ document.getElementById("save-channel-btn").onclick = async () => {
   if (currentEditingIndex !== null) channels[currentEditingIndex] = config;
   else channels.push(config);
 
-  await chrome.storage.local.set({ channels });
+  await setActiveChannels(channels);
+  await chrome.storage.local.set({ globalMute: false });
   closeModal();
   renderChannels(channels);
   chrome.runtime.sendMessage({ action: "checkNow" });
@@ -1331,14 +1363,16 @@ async function initLoginScreen() {
 
       if (response.ok && result.success) {
         const isAdmin = result.role === "admin";
-        
+        const restoredChannels = await loadChannelsForUser(discordId);
+
         await chrome.storage.local.set({ 
           userDiscordId: discordId, 
           userDiscordUsername: result.username || "Unknown",
           isAdminVerified: isAdmin,
           isUserVerified: true,
           isUserLoggedIn: true,
-          isOwnerVerified: false
+          isOwnerVerified: false,
+          channels: restoredChannels
         });
         // Start realtime SSE moderation connection
         chrome.runtime.sendMessage({ action: 'startSSE', discordId: discordId });
@@ -1488,16 +1522,9 @@ async function loadInitialData() {
   // Global Mute Toggle
   const globalMuteToggle = document.getElementById("global-mute-toggle");
   if (globalMuteToggle) {
-    globalMuteToggle.checked = data.globalMute !== false;
-    if (data.globalMute === undefined) {
-      globalMuteToggle.checked = true;
-      chrome.storage.local.set({ globalMute: true });
-    }
-    globalMuteToggle.onchange = async (e) => {
-      await chrome.storage.local.set({ globalMute: e.target.checked });
-      chrome.runtime.sendMessage({ action: "checkNow" }).catch(() => {});
-      console.log("Global Mute saved:", e.target.checked);
-    };
+    globalMuteToggle.checked = false;
+    globalMuteToggle.disabled = true;
+    chrome.storage.local.set({ globalMute: false });
   }
 
   const maxOpenChannelsInput = document.getElementById("max-open-channels");
@@ -1725,7 +1752,7 @@ function renderChannels(channels) {
     item.querySelector(".auto-mode-toggle").onchange = async (e) => {
       const data = await chrome.storage.local.get(["channels"]);
       data.channels[index].autoMode = e.target.checked;
-      await chrome.storage.local.set({ channels: data.channels });
+      await setActiveChannels(data.channels);
       chrome.runtime.sendMessage({ action: "checkNow" });
     };
     
@@ -1736,7 +1763,9 @@ function renderChannels(channels) {
       document.getElementById("channel-slug-input").value = config.slug;
       document.getElementById("url-input-group").style.display = "none";
       
-      document.getElementById("channel-mute-toggle").checked = config.mute;
+      const muteToggleEdit = document.getElementById("channel-mute-toggle");
+      muteToggleEdit.checked = true;
+      muteToggleEdit.disabled = true;
       document.getElementById("channel-follow-toggle").checked = config.autoFollow;
       document.getElementById("channel-max-comments").value = config.maxComments;
       document.getElementById("greeting-messages").value = config.greeting?.list?.join("\n") || "";
@@ -1780,7 +1809,7 @@ function renderChannels(channels) {
       if (await ASCDialog.danger(`Are you sure you want to delete "${ch.slug}"?`, { confirmLabel: "DELETE", cancelLabel: "Cancel" })) {
         const data = await chrome.storage.local.get(["channels"]);
         data.channels.splice(index, 1);
-        await chrome.storage.local.set({ channels: data.channels });
+        await setActiveChannels(data.channels);
         renderChannels(data.channels);
       }
     };
@@ -2122,7 +2151,7 @@ document.getElementById("export-data-btn").onclick = async () => {
   try {
     const { channels = [] } = await chrome.storage.local.get(["channels"]);
     const backup = {
-      app: "NXS Streamers",
+      app: "AK Streamers",
       type: "channels-backup",
       exportedAt: new Date().toISOString(),
       channels
@@ -2131,7 +2160,7 @@ document.getElementById("export-data-btn").onclick = async () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `nxs_streamers_channels_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `ak_streamers_channels_backup_${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (err) {
@@ -2163,7 +2192,7 @@ document.getElementById("import-file-input").onchange = (e) => {
       }
 
       if (await ASCDialog.danger("This will replace your current channel list only. Admin, owner, member, and login data will stay unchanged. Continue?", { confirmLabel: "IMPORT", cancelLabel: "Cancel" })) {
-        await chrome.storage.local.set({ channels: importedChannels });
+        await setActiveChannels(importedChannels);
         renderChannels(importedChannels);
         chrome.runtime.sendMessage({ action: "checkNow" }).catch(() => {});
         await ASCDialog.success("Channels imported successfully!");

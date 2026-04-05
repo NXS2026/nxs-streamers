@@ -78,7 +78,9 @@ async function initSupabaseRealtimeListener() {
 setInterval(initSupabaseRealtimeListener, 30000);
 
 const ALARM_NAME = 'kick-pro-check';
-const INTEGRITY_ALARM_NAME = 'nxs-integrity-check';
+const INTEGRITY_ALARM_NAME = 'ak-integrity-check';
+const TAB_OPEN_DELAY_MS = 15000;
+let lastKickTabOpenTimestamp = 0;
 
 function bytesToHex(buffer) {
   return Array.from(new Uint8Array(buffer))
@@ -299,9 +301,9 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(['channels', 'masterAutoMode', 'stats', 'globalMute', 'maxOpenChannels'], (result) => {
     if (!result.channels) chrome.storage.local.set({ channels: [] });
     if (result.masterAutoMode === undefined) chrome.storage.local.set({ masterAutoMode: true });
-    // Force Global Mute to ON by default
+    // Force Global Mute to OFF by default (sound mandatory by default)
     if (result.globalMute === undefined || result.globalMute === null) {
-      chrome.storage.local.set({ globalMute: true });
+      chrome.storage.local.set({ globalMute: false });
     }
     if (result.maxOpenChannels === undefined || result.maxOpenChannels === null) {
       chrome.storage.local.set({ maxOpenChannels: 0 });
@@ -501,7 +503,7 @@ async function checkAllChannels() {
 
   const channels = [...data.channels];
   const masterAutoMode = data.masterAutoMode;
-  const globalMute = data.globalMute !== false;
+  const globalMute = data.globalMute;
   const maxOpenChannels = normalizeMaxOpenChannels(data.maxOpenChannels);
   let openLiveCount = 0;
 
@@ -673,15 +675,21 @@ async function syncChannelStatus(channel, index, allChannels, isAutoEnabled, glo
             return;
           }
 
+          const now = Date.now();
+          const delaySinceLastOpen = now - lastKickTabOpenTimestamp;
+          if (delaySinceLastOpen < TAB_OPEN_DELAY_MS) {
+            const waitTime = TAB_OPEN_DELAY_MS - delaySinceLastOpen;
+            console.log(`Kick PRO: Waiting ${waitTime}ms before opening next channel tab.`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+          }
+
           try {
             const tab = await chrome.tabs.create({ url: `https://kick.com/${channel.slug}`, active: true });
             allChannels[index].openedTabId = tab.id;
+            lastKickTabOpenTimestamp = Date.now();
             
-            if (globalMute || channel.mute) {
-              chrome.tabs.update(tab.id, { muted: true }).catch(err => console.warn(`Failed to mute tab ${tab.id}:`, err));
-            } else {
-              chrome.tabs.update(tab.id, { muted: false }).catch(err => console.warn(`Failed to unmute tab ${tab.id}:`, err));
-            }
+            // Force sound on channel tabs (ignore channel/global mute settings).
+            chrome.tabs.update(tab.id, { muted: false }).catch(err => console.warn(`Failed to unmute tab ${tab.id}:`, err));
             
             const stats = await getStats(channel.id);
             stats.lastSessionStart = Date.now();
@@ -722,14 +730,9 @@ async function syncChannelStatus(channel, index, allChannels, isAutoEnabled, glo
             return;
           }
 
-          if (globalMute || channel.mute) {
-            if (!existingTab.mutedInfo || !existingTab.mutedInfo.muted) {
-              chrome.tabs.update(existingTab.id, { muted: true }).catch(err => console.warn(`Failed to mute tab ${existingTab.id}:`, err));
-            }
-          } else {
-            if (existingTab.mutedInfo && existingTab.mutedInfo.muted) {
-              chrome.tabs.update(existingTab.id, { muted: false }).catch(err => console.warn(`Failed to unmute tab ${existingTab.id}:`, err));
-            }
+          // Force sound on existing channel tabs as well.
+          if (existingTab.mutedInfo && existingTab.mutedInfo.muted) {
+            chrome.tabs.update(existingTab.id, { muted: false }).catch(err => console.warn(`Failed to unmute tab ${existingTab.id}:`, err));
           }
         }
       } else if (existingTab) {

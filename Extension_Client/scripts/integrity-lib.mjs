@@ -36,7 +36,7 @@ export async function generateIntegrityFile(targetDir, options = {}) {
   }
 
   const payload = {
-    name: manifest.name || 'NXS Streamers',
+    name: manifest.name || 'AK Streamers',
     version: manifest.version || 'unknown',
     buildType,
     generatedAt: new Date().toISOString(),

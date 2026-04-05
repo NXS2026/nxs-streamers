@@ -1,10 +1,10 @@
 // ============================================================
-// NXS STREAMERS — features.js
+// AK STREAMERS — features.js
 // Dark/Light Theme · Language (EN/FR/AR) · Drag&Drop · Ann History
 // ============================================================
 
 // ── TRANSLATIONS ────────────────────────────────────────────
-const BRAND_PRIMARY = globalThis.APP_CONFIG?.brand?.primary || "NXS";
+const BRAND_PRIMARY = globalThis.APP_CONFIG?.brand?.primary || "AK";
 const BRAND_SECONDARY = globalThis.APP_CONFIG?.brand?.secondary || "STREAMERS";
 const FEATURES_DEFAULT_API_BASE_URL = globalThis.APP_CONFIG?.api?.fallbackUrl || "http://localhost:3000";
 const FEATURES_DEV_TOOLS_ENABLED = globalThis.APP_CONFIG?.security?.enableDeveloperTools === true;

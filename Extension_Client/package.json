@@ -1,5 +1,5 @@
 {
-  "name": "nxs-streamers-extension-build",
+  "name": "ak-streamers-extension-build",
   "private": true,
   "type": "module",
   "scripts": {

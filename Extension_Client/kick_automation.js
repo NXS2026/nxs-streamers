@@ -60,63 +60,171 @@ window.addEventListener("load", () => {
     }, 3000);
 });
 
+function queryAllDeep(selector, root = document) {
+    const results = [];
+
+    function walk(node) {
+        if (!node) return;
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            try {
+                if (node.matches(selector)) results.push(node);
+            } catch (e) {
+                // ignore invalid selector on some nodes
+            }
+            if (node.shadowRoot) {
+                walk(node.shadowRoot);
+            }
+        }
+
+        const children = node.children || [];
+        for (const child of children) {
+            walk(child);
+        }
+    }
+
+    walk(root);
+    return results;
+}
+
+function clickUnmuteCandidates() {
+    const textCandidates = [
+        'unmute',
+        'sound on',
+        'turn on sound',
+        'click to unmute',
+        'enable sound',
+        'allow audio',
+        'resume audio'
+    ];
+
+    const elements = queryAllDeep('button, [role="button"], div, span');
+    for (const el of elements) {
+        if (!el.offsetParent || el.offsetWidth === 0 || el.offsetHeight === 0) continue;
+        const text = (el.textContent || '').toLowerCase().trim();
+        if (!text) continue;
+
+        if (textCandidates.some(candidate => text.includes(candidate))) {
+            try {
+                el.click();
+                console.log('Kick PRO: Clicked potential unmute element:', text, el);
+                return true;
+            } catch (err) {
+                console.warn('Kick PRO: Failed to click unmute candidate', err, el);
+            }
+        }
+    }
+    return false;
+}
+
 function injectVolumeToStorage(vol) {
     try {
         // Always set volume=1 and muted=false on video player
         // Chrome tab mute handles the actual silence - Kick sees an active viewer
-        localStorage.setItem("kick_video_player_volume", "1");
-        localStorage.setItem("videojs-volume", "1");
-        localStorage.setItem("kick_video_player_muted", "false");
-        
+        const keys = [
+            "kick_video_player_volume",
+            "videojs-volume",
+            "video-player-volume",
+            "player_volume",
+            "audio_volume"
+        ];
+        const mutedKeys = [
+            "kick_video_player_muted",
+            "videojs-muted",
+            "video-player-muted",
+            "player_muted",
+            "audio_muted"
+        ];
+
+        keys.forEach(key => localStorage.setItem(key, "1"));
+        mutedKeys.forEach(key => localStorage.setItem(key, "false"));
+
         const player = document.querySelector('video');
         if (player) {
             player.muted = false;
             player.volume = 1;
         }
-    } catch (e) {}
+    } catch (e) {
+        console.warn("Kick PRO: injectVolumeToStorage failed", e);
+    }
 }
 
 function forceUnmute() {
-    // Always run - Chrome tab mute handles silence, video player must stay unmuted for Kick
     console.log("Kick PRO: Attempting to force unmute player...");
-    
-    
-    const muteButton = document.querySelector('button[aria-label="Mute"], button[aria-label="Unmute"], .vjs-mute-control');
-    if (muteButton) {
-        const isCurrentlyMuted = muteButton.getAttribute('aria-label') === 'Unmute' || 
-                               muteButton.classList.contains('vjs-vol-0') ||
-                               document.querySelector('.vjs-vol-0');
-        if (isCurrentlyMuted) {
-            muteButton.click();
-            console.log("Kick PRO: Clicked mute button to unmute");
+
+    const audioElements = queryAllDeep('video, audio');
+    audioElements.forEach((el) => {
+        try {
+            if (el.muted) {
+                el.muted = false;
+                console.log("Kick PRO: Disabled element mute", el);
+            }
+            if (typeof el.volume !== 'undefined' && el.volume !== 1) {
+                el.volume = 1;
+                console.log("Kick PRO: Set element volume to 1", el);
+            }
+            if (el.paused && typeof el.play === 'function') {
+                el.play().catch(err => {
+                    console.log("Kick PRO: Autoplay prevented on element", err);
+                });
+            }
+        } catch (err) {
+            console.warn("Kick PRO: Failed to update audio element", err);
         }
+    });
+
+    const muteButtons = queryAllDeep(
+        'button[aria-label="Mute"], button[aria-label="Unmute"], button[aria-label="Toggle mute"], button[aria-label="Mute player"], button[aria-label="Unmute player"], .vjs-mute-control, .mute-button, .player-mute-button, .video-player-mute-button'
+    );
+
+    muteButtons.forEach((button) => {
+        try {
+            const aria = button.getAttribute('aria-label') || '';
+            const isMutedState = aria.toLowerCase().includes('unmute') || button.classList.contains('vjs-vol-0') || button.classList.contains('muted');
+            if (isMutedState) {
+                button.click();
+                console.log("Kick PRO: Clicked mute button to unmute", button);
+            }
+        } catch (err) {
+            console.warn("Kick PRO: Failed to click mute button", err);
+        }
+    });
+
+    const clicked = clickUnmuteCandidates();
+    if (clicked) {
+        console.log('Kick PRO: Clicked an unmute candidate by text content.');
     }
 
-    
-    const video = document.querySelector('video');
-    if (video) {
-        if (video.muted) {
-            video.muted = false;
-            console.log("Kick PRO: Set video.muted to false");
-        }
-        if (video.volume !== 1) {
-            video.volume = 1;
-            console.log("Kick PRO: Set video.volume to 1");
-        }
-        
-        
-        if (video.paused) {
-            video.play().catch(err => {
-                console.log("Kick PRO: Autoplay prevented, waiting for interaction", err);
-            });
-        }
+    injectVolumeToStorage(1);
+}
+
+function observeStreamMuting() {
+    try {
+        const observer = new MutationObserver(() => {
+            forceUnmute();
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    } catch (err) {
+        console.warn("Kick PRO: MutationObserver failed", err);
     }
 }
 
+observeStreamMuting();
 
-document.addEventListener('click', () => {
+function bindUnmuteInteractions() {
+    ['click', 'pointerdown', 'keydown', 'visibilitychange'].forEach((eventName) => {
+        document.addEventListener(eventName, () => {
+            forceUnmute();
+        }, { capture: true, passive: true });
+    });
+}
+
+bindUnmuteInteractions();
+
+setTimeout(() => {
+    console.log("Kick PRO: Initial 10s unmute triggered");
     forceUnmute();
-}, { once: false });
+    setInterval(forceUnmute, 5000);
+}, 10000);
 
 async function getApiUrl() {
     return new Promise((resolve) => {
@@ -1065,7 +1173,11 @@ function setupAudioContext() {
 function setVolumeBoost(boostAmount) {
     currentBoost = boostAmount;
     if (gainNode) gainNode.gain.value = boostAmount;
-    if (audioContext && audioContext.state === "suspended") audioContext.resume();
+    if (audioContext && audioContext.state === "suspended") {
+        audioContext.resume().catch(err => {
+            console.warn("Kick PRO: audioContext.resume failed (waiting user gesture):", err);
+        });
+    }
 }
 
 async function applyStoredVolumeBoost() {
