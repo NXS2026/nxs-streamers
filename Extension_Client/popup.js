@@ -429,6 +429,10 @@ function canCurrentViewerUseRestrictedModeration(user) {
   return false;
 }
 
+function isProtectedOwnerUser(user) {
+  return !!user && user.isOwner === true;
+}
+
 function updateDetailModerationControls(user = currentDetailUser) {
   const banBtn = document.getElementById("detail-ban-btn");
   const timeoutBtn = document.getElementById("detail-timeout-btn");
@@ -2503,6 +2507,7 @@ function displayUserList(users) {
   const listContainer = document.getElementById('admin-active-list');
   const search = document.getElementById('admin-user-search').value.toLowerCase().trim();
   const filteredUsers = users.filter((user) => {
+    if (isProtectedOwnerUser(user)) return false;
     const username = String(user.username || '').toLowerCase();
     const discordId = String(user.discordId || '').toLowerCase();
     return !search || username.includes(search) || discordId.includes(search);
@@ -2927,6 +2932,11 @@ async function showUserDetailWithMonitoringLegacy(user) {
 }
 
 async function showUserDetailWithMonitoring(user) {
+  if (isProtectedOwnerUser(user)) {
+    await ASCDialog.alert('Owner account is protected and hidden from monitoring.');
+    return;
+  }
+
   const overlay = document.getElementById('admin-user-detail-overlay');
   document.getElementById('detail-username').textContent = user.username;
   document.getElementById('detail-discord-id').textContent = user.discordId || 'N/A';
@@ -2987,6 +2997,15 @@ async function loadOverlayDashboard(discordId) {
   const timeEl = document.getElementById('detail-dash-time');
   const commentsEl = document.getElementById('detail-dash-comments');
   const channelsEl = document.getElementById('detail-dash-channels');
+
+  if (isProtectedOwnerUser(currentDetailUser) && currentDetailUser?.discordId === discordId) {
+    if (timeEl) timeEl.textContent = '--';
+    if (commentsEl) commentsEl.textContent = '--';
+    if (channelsEl) {
+      channelsEl.innerHTML = '<div style="font-size:10px;color:var(--text-dim);text-align:center;padding:10px;">Owner activity is private</div>';
+    }
+    return;
+  }
 
   if (channelsEl) channelsEl.innerHTML = '<div style="font-size:10px;color:var(--text-dim);text-align:center;padding:10px;">Loading...</div>';
 
@@ -3122,6 +3141,18 @@ async function loadOverlayDashboard(discordId) {
 async function updateModerationStatus(user) {
   const statusEl = document.getElementById('detail-moderation-status');
   const unbanBtn = document.getElementById('detail-unban-btn');
+
+  if (isProtectedOwnerUser(user)) {
+    if (statusEl) {
+      statusEl.textContent = 'OWNER ACCOUNT IS PROTECTED';
+      statusEl.style.color = 'var(--warning)';
+    }
+    if (unbanBtn) {
+      unbanBtn.style.display = 'none';
+    }
+    return;
+  }
+
   const data = await chrome.storage.local.get(["userDiscordId", "API_BASE_URL"]);
   const baseUrl = data.API_BASE_URL || POPUP_DEFAULT_API_BASE_URL;
   const adminId = data.userDiscordId;

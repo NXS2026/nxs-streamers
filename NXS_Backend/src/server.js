@@ -630,6 +630,50 @@ function pruneReservedTestIdentities(db) {
   }
 }
 
+function getProtectedOwnerIds(db) {
+  const protectedIds = new Set(Array.from(OWNER_IDS).map(normalizeIdentity).filter(Boolean));
+
+  for (const user of db.users || []) {
+    const normalizedId = normalizeIdentity(user.discordId);
+    if (!normalizedId || !isEmailIdentity(normalizedId)) continue;
+    if (user.owner === true) {
+      protectedIds.add(normalizedId);
+    }
+  }
+
+  return protectedIds;
+}
+
+function purgeProtectedOwnerState(db) {
+  const protectedOwnerIds = getProtectedOwnerIds(db);
+  if (protectedOwnerIds.size === 0) return;
+
+  db.logs = (db.logs || []).filter((entry) => !protectedOwnerIds.has(normalizeIdentity(entry.discordId)));
+  db.actionLogs = (db.actionLogs || []).filter((entry) => !protectedOwnerIds.has(normalizeIdentity(entry.userId)));
+  db.whitelistErrors = (db.whitelistErrors || []).filter((entry) => !protectedOwnerIds.has(normalizeIdentity(entry.userId)));
+  db.securityAlerts = (db.securityAlerts || []).filter((entry) => !protectedOwnerIds.has(normalizeIdentity(entry.userDiscordId)));
+
+  if (db.announcements) {
+    db.announcements.confirmations = (db.announcements.confirmations || []).filter(
+      (entry) => !protectedOwnerIds.has(normalizeIdentity(entry.userId))
+    );
+  }
+
+  for (const ownerId of protectedOwnerIds) {
+    if (db.activeUsers?.[ownerId]) delete db.activeUsers[ownerId];
+    if (db.dashboard?.[ownerId]) delete db.dashboard[ownerId];
+    if (db.moderation?.bans?.[ownerId]) delete db.moderation.bans[ownerId];
+    if (db.moderation?.timeouts?.[ownerId]) delete db.moderation.timeouts[ownerId];
+    if (db.moderation?.kicks?.[ownerId]) delete db.moderation.kicks[ownerId];
+  }
+}
+
+function filterProtectedOwnerEntries(db, entries = {}) {
+  return Object.fromEntries(
+    Object.entries(entries || {}).filter(([discordId]) => !isEffectiveOwner(db, discordId))
+  );
+}
+
 function getKnownUsers(db) {
   const users = new Map();
 
@@ -869,6 +913,7 @@ app.post('/api/login', async (req, res) => {
 
   const db = await store.update((draft) => {
     pruneTimeouts(draft);
+    purgeProtectedOwnerState(draft);
     return draft;
   });
 
@@ -898,17 +943,25 @@ app.post('/api/login', async (req, res) => {
 
   const role = isAdmin(db, email) ? 'admin' : 'user';
   const updatedDb = await store.update((draft) => {
+    const isProtectedOwner = isEffectiveOwner(draft, email);
     const user = ensureUser(draft, { discordId: email, username: kickUsername, role });
     if (user) user.username = kickUsername;
 
-    const dashboard = ensureDashboard(draft, { discordId: email, username: kickUsername });
-    if (dashboard) dashboard.username = kickUsername;
-
-    if (draft.activeUsers?.[email]) {
-      draft.activeUsers[email].username = kickUsername;
-      draft.activeUsers[email].role = role;
+    if (!isProtectedOwner) {
+      const dashboard = ensureDashboard(draft, { discordId: email, username: kickUsername });
+      if (dashboard) dashboard.username = kickUsername;
     }
 
+    if (draft.activeUsers?.[email]) {
+      if (isProtectedOwner) {
+        delete draft.activeUsers[email];
+      } else {
+        draft.activeUsers[email].username = kickUsername;
+        draft.activeUsers[email].role = role;
+      }
+    }
+
+    purgeProtectedOwnerState(draft);
     return draft;
   });
 
@@ -1397,6 +1450,11 @@ app.post('/api/heartbeat', async (req, res) => {
     pruneTimeouts(draft);
     ensureUser(draft, { discordId, username, role: getRole(draft, discordId) });
 
+    if (isEffectiveOwner(draft, discordId)) {
+      purgeProtectedOwnerState(draft);
+      return draft;
+    }
+
     const activeUser = draft.activeUsers[discordId] || {
       discordId,
       username,
@@ -1461,6 +1519,11 @@ app.post('/api/dashboard/update', async (req, res) => {
 
   const db = await store.update((draft) => {
     ensureUser(draft, { discordId, username, role: getRole(draft, discordId) });
+    if (isEffectiveOwner(draft, discordId)) {
+      purgeProtectedOwnerState(draft);
+      return draft;
+    }
+
     const dashboard = ensureDashboard(draft, { discordId, username });
 
     if (!dashboard.channels[channel]) {
@@ -1484,6 +1547,11 @@ app.post('/api/dashboard/sync', async (req, res) => {
 
   const db = await store.update((draft) => {
     ensureUser(draft, { discordId, username, role: getRole(draft, discordId) });
+    if (isEffectiveOwner(draft, discordId)) {
+      purgeProtectedOwnerState(draft);
+      return draft;
+    }
+
     const dashboard = ensureDashboard(draft, { discordId, username });
 
     if (!dashboard.channels[channel]) {
@@ -1503,6 +1571,7 @@ app.get('/api/admin/active-users', requireAdmin, async (_req, res) => {
   const db = await store.update((draft) => {
     pruneActiveUsers(draft);
     pruneTimeouts(draft);
+    purgeProtectedOwnerState(draft);
     return draft;
   });
 
@@ -1510,6 +1579,7 @@ app.get('/api/admin/active-users', requireAdmin, async (_req, res) => {
     .filter((user) => isEmailIdentity(user.discordId))
     .filter((user) => !db.moderation.bans?.[user.discordId])
     .filter((user) => !db.moderation.timeouts?.[user.discordId])
+    .filter((user) => !isEffectiveOwner(db, user.discordId))
     .map((user) => ({
       discordId: user.discordId,
       username: user.username,
@@ -1528,12 +1598,16 @@ app.get('/api/admin/active-users', requireAdmin, async (_req, res) => {
 
 app.get('/api/admin/users', requireAdmin, async (_req, res) => {
   const db = await store.read();
-  res.json(getKnownUsers(db));
+  res.json(getKnownUsers(db).filter((user) => !user.isOwner));
 });
 
 app.get('/api/admin/user-logs', requireAdmin, async (req, res) => {
   const db = await store.read();
   const requestedUserId = normalizeIdentity(req.query.userId || req.adminId);
+  if (isEffectiveOwner(db, requestedUserId)) {
+    return res.status(403).json({ success: false, error: 'Owner activity is private.' });
+  }
+
   const logs = (db.logs || [])
     .filter((entry) => normalizeIdentity(entry.discordId) === requestedUserId)
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -1544,26 +1618,31 @@ app.get('/api/admin/user-logs', requireAdmin, async (req, res) => {
 app.get('/api/admin/user-dashboard', requireAdmin, async (req, res) => {
   const userId = normalizeIdentity(req.query.userId || '');
   const db = await store.read();
+  if (isEffectiveOwner(db, userId)) {
+    return res.status(403).json({ success: false, error: 'Owner dashboard is private.' });
+  }
+
   const dashboard = db.dashboard?.[userId];
   res.json(buildDashboardResponse(dashboard));
 });
 
 app.get('/api/admin/bans', requireAdmin, async (_req, res) => {
   const db = await store.read();
-  res.json(db.moderation.bans || {});
+  res.json(filterProtectedOwnerEntries(db, db.moderation.bans || {}));
 });
 
 app.get('/api/admin/timeouts', requireAdmin, async (_req, res) => {
   const db = await store.update((draft) => {
     pruneTimeouts(draft);
+    purgeProtectedOwnerState(draft);
     return draft;
   });
-  res.json(db.moderation.timeouts || {});
+  res.json(filterProtectedOwnerEntries(db, db.moderation.timeouts || {}));
 });
 
 app.get('/api/admin/kicks', requireAdmin, async (_req, res) => {
   const db = await store.read();
-  res.json(db.moderation.kicks || {});
+  res.json(filterProtectedOwnerEntries(db, db.moderation.kicks || {}));
 });
 
 app.post('/api/admin/moderate', requireAdmin, async (req, res) => {
@@ -1574,6 +1653,10 @@ app.post('/api/admin/moderate', requireAdmin, async (req, res) => {
 
   if (!target) {
     return res.status(404).json({ success: false, error: 'Active user not found for the given IP' });
+  }
+
+  if (isEffectiveOwner(db, target.discordId)) {
+    return res.status(403).json({ success: false, error: 'Owner accounts are protected.' });
   }
 
   if ((type === 'ban' || type === 'timeout') && !canApplyRestrictedModeration(db, req.adminId, target.discordId)) {
@@ -1640,6 +1723,10 @@ app.post('/api/admin/ban', requireAdmin, async (req, res) => {
   if (!targetDiscordId) return res.status(400).json({ success: false, error: 'targetDiscordId is required' });
   const db = req.currentDb || await store.read();
 
+  if (isEffectiveOwner(db, targetDiscordId)) {
+    return res.status(403).json({ success: false, error: 'Owner accounts are protected.' });
+  }
+
   if (!canApplyRestrictedModeration(db, req.adminId, targetDiscordId)) {
     return res.status(403).json({ success: false, error: 'Role hierarchy prevents this moderation action.' });
   }
@@ -1668,6 +1755,10 @@ app.post('/api/admin/timeout', requireAdmin, async (req, res) => {
 
   if (!targetDiscordId) return res.status(400).json({ success: false, error: 'targetDiscordId is required' });
   const db = req.currentDb || await store.read();
+
+  if (isEffectiveOwner(db, targetDiscordId)) {
+    return res.status(403).json({ success: false, error: 'Owner accounts are protected.' });
+  }
 
   if (!canApplyRestrictedModeration(db, req.adminId, targetDiscordId)) {
     return res.status(403).json({ success: false, error: 'Role hierarchy prevents this moderation action.' });
@@ -1757,6 +1848,10 @@ app.post('/api/announcement/confirm', async (req, res) => {
     if (timestamp && latest.timestamp !== timestamp) return draft;
 
     ensureUser(draft, { discordId: userId, username, role: getRole(draft, userId) });
+    if (isEffectiveOwner(draft, userId)) {
+      purgeProtectedOwnerState(draft);
+      return draft;
+    }
 
     const exists = (draft.announcements.confirmations || []).some((entry) => normalizeIdentity(entry.userId) === userId);
     if (!exists) {
@@ -1779,9 +1874,11 @@ app.get('/api/announcement/confirmations', requireAdmin, async (_req, res) => {
     return res.json({ confirmations: [], pending: [] });
   }
 
-  const recipients = getAnnouncementRecipients(db, latest);
+  const recipients = getAnnouncementRecipients(db, latest).filter((user) => !user.isOwner);
   const confirmedMap = new Map(
-    (db.announcements.confirmations || []).map((entry) => [normalizeIdentity(entry.userId), entry])
+    (db.announcements.confirmations || [])
+      .filter((entry) => !isEffectiveOwner(db, entry.userId))
+      .map((entry) => [normalizeIdentity(entry.userId), entry])
   );
 
   const confirmations = recipients
@@ -1809,6 +1906,11 @@ app.post('/api/log-action', async (req, res) => {
   if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
 
   await store.update((draft) => {
+    if (isEffectiveOwner(draft, userId)) {
+      purgeProtectedOwnerState(draft);
+      return draft;
+    }
+
     draft.actionLogs.unshift({
       id: createId(),
       userId,
